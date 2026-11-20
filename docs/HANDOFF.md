@@ -77,6 +77,8 @@ cd apps/desktop && pnpm tauri dev
 
 **VOICEVOX (lesson voice).** Download the official engine from the VOICEVOX/voicevox_engine GitHub releases: on Apple Silicon `voicevox_engine-macos-arm64-<version>.vvpp` (about 2 GB, a zip), on Intel the x64 build. Unzip it into `~/Library/Application Support/jle-voicevox/<version>/`, so that `.../<version>/run` exists. The app finds the newest version there, starts the engine on 127.0.0.1:50021 and stops it on quit. `JLE_VOICEVOX_DIR` overrides the folder. Without it, the app uses the system voice.
 
+**Sudachi (tokenizer).** Download `sudachi-dictionary-<date>-core.zip` (about 77 MB) from the WorksApplications/SudachiDict GitHub releases and put its `system_core.dic` (about 200 MB) in `~/Library/Application Support/jle-sudachi/<date>/`. The host loads the newest one on first use (about 0.15 s) and keeps it; `JLE_SUDACHI_DIR` overrides the folder. The dictionary and sudachi.rs are Apache 2.0. Without it, the `analyze` command returns an error saying what to install. Tokenizer tests skip when it is missing.
+
 **Your study progress** lives in `~/Library/Application Support/app.jle.desktop/jle.sqlite` and does not sync. To carry it over, quit the app on both machines and copy that file to the same path on the new Mac. Settings → Save a copy exports the log as JSON, but there is no import yet.
 
 **Installing into /Applications:** `pnpm app` from the main checkout builds a release and replaces `/Applications/日本語.app`. See the repo `CLAUDE.md`.

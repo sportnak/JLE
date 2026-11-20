@@ -103,3 +103,22 @@ export async function listVoices(): Promise<VoiceOption[]> {
 export async function voiceTerms(uuid: string): Promise<string> {
   return invoke<string>('voice_terms', { uuid });
 }
+
+/** A token from Sudachi in the host. Offsets are in characters; `reading` is hiragana. */
+export interface Token {
+  surface: string;
+  dictionaryForm: string;
+  normalizedForm: string;
+  reading: string;
+  /** Six part-of-speech levels; the last two are conjugation type and form, or `*`. */
+  pos: string[];
+  begin: number;
+  end: number;
+  oov: boolean;
+}
+
+/** Morphological analysis. Needs the desktop app and its Sudachi dictionary. */
+export async function analyze(text: string, mode: 'A' | 'B' | 'C' = 'C'): Promise<Token[]> {
+  if (!inTauri) throw new Error('The tokenizer needs the desktop app.');
+  return invoke<Token[]>('analyze', { text, mode });
+}

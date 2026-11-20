@@ -25,3 +25,4 @@ tauri = { version = "2.12.7", features = [] }
 tauri-plugin-log = "2"
 rusqlite = { version = "0.43.0", features = ["bundled"] }
 ureq = "3.5.2"
+sudachi = { git = "https://github.com/WorksApplications/sudachi.rs", tag = "v0.7.0" }

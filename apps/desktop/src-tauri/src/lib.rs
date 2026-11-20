@@ -1,8 +1,9 @@
 mod events;
+mod tokenizer;
 mod voice;
 mod voicevox;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{Manager, RunEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -23,6 +24,7 @@ pub fn run() {
       app.manage(Mutex::new(store));
       app.manage(voice::Voice::default());
       app.manage(voicevox::Engine::default());
+      app.manage(Arc::new(tokenizer::Tokenizer::default()));
       voicevox::start_if_needed(app.handle());
       Ok(())
     })
@@ -36,6 +38,7 @@ pub fn run() {
       voice::voice_info,
       voice::voices,
       voice::voice_terms,
+      tokenizer::analyze,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
