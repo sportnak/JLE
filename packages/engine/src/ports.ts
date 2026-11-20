@@ -13,6 +13,13 @@ export interface EventStore {
   append(event: InteractionEvent): Promise<void>;
 }
 
+export type LlmRoute = 'generate' | 'grade' | 'tutor' | 'explain' | 'review';
+
+/** The model, behind the host. One interface, five routes. No implementation yet; code-graded activities never see it. */
+export interface Llm {
+  call(route: LlmRoute, request: { promptVersion: string; input: unknown }): Promise<{ output: unknown; stopReason: string }>;
+}
+
 export const systemClock: Clock = { now: () => new Date() };
 
 export const randomIds: Ids = { next: () => crypto.randomUUID() };

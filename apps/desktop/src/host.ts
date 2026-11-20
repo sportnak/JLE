@@ -47,6 +47,34 @@ export async function speak(text: string, speaker: number | null = getVoice(), s
   speechSynthesis.speak(u);
 }
 
+/** Plays phrases one after another, such as both words of a minimal pair. A later request stops the rest. */
+export async function speakSequence(texts: string[], gapMs = 600, speaker: number | null = getVoice(), speed: number = getSpeed()) {
+  if (inTauri) {
+    try {
+      await invoke('speak_sequence', { texts, speaker, speed, gapMs });
+      return;
+    } catch {
+      /* fall through to the browser voice */
+    }
+  }
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const voice = speechSynthesis.getVoices().find((v) => v.lang.startsWith('ja'));
+  texts.forEach((text, i) => {
+    const u = new SpeechSynthesisUtterance(i === 0 ? text : `、${text}`);
+    u.lang = 'ja-JP';
+    u.rate = speed;
+    if (voice) u.voice = voice;
+    speechSynthesis.speak(u);
+  });
+}
+
+/** Renders clips ahead of time so the first play starts at once. Silent when there is no host. */
+export async function prepareSpeech(texts: string[], speaker: number | null = getVoice(), speed: number = getSpeed()) {
+  if (!inTauri) return;
+  await invoke('prepare_speech', { texts, speaker, speed }).catch(() => undefined);
+}
+
 export interface VoiceInfo {
   engine: 'voicevox' | 'system';
   version: string | null;

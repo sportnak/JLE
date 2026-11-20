@@ -1,9 +1,10 @@
 import { DEFAULT_CONFIG, type EngineConfig } from './config';
 import { derive, type LearnerModel, type Outcome } from './learner';
 import { createScheduler, type Scheduler } from './model';
-import { frontierItems, planCandidates } from './planner';
+import { typeOf } from './activities';
+import { currentStage, frontierItems, planCandidates, strandMinutesSince } from './planner';
 import { asHiragana, grade } from './grading';
-import { randomIds, systemClock, type Clock, type EventStore, type Ids } from './ports';
+import { randomIds, systemClock, type Clock, type EventStore, type Ids, type Llm } from './ports';
 import type {
   ActivitySpec,
   Catalog,
@@ -13,7 +14,9 @@ import type {
   ItemType,
   NewInteraction,
   Skill,
+  Stage,
   Status,
+  Strand,
 } from './types';
 
 export interface EngineOptions {
@@ -25,6 +28,8 @@ export interface EngineOptions {
   clock?: Clock;
   ids?: Ids;
   utcOffsetMinutes?: number;
+  /** For model-graded activities, when they arrive. Code-graded activities never receive it. */
+  llm?: Llm;
 }
 
 export interface ActivityView {
@@ -39,6 +44,7 @@ export type NextActivity = { done: false; activity: ActivityView } | { done: tru
 export type LearnerInput =
   | { kind: 'answer'; text: string; latencyMs: number }
   | { kind: 'dont_know'; latencyMs: number }
+  | { kind: 'choice'; choice: string; latencyMs: number }
   | { kind: 'skip' }
   | { kind: 'dispute' };
 
@@ -55,7 +61,7 @@ export interface SessionRecap {
   newItems: string[];
   missed: string[];
   becameKnown: string[];
-  corrections: { itemId: string; given: string | null; expected: string }[];
+  corrections: { itemId: string; type: ActivitySpec['type']; given: string | null; expected: string }[];
   changes: { itemId: string; skill: Skill; from: Status; to: Status }[];
 }
 
@@ -140,13 +146,14 @@ export class Engine {
     return { sessionId, next: await this.nextActivity(sessionId) };
   }
 
-  /** Expected seconds for an activity: a base for its kind plus a little per character. */
+  /** Expected seconds for an activity, from its type: a base plus a little per character. */
   expectedSeconds(spec: ActivitySpec): number {
-    const t = this.config.timing;
-    const item = this.model.items.get(spec.itemId);
-    const chars = item ? [...item.reading].length : 1;
-    const base = spec.type === 'introduce' ? t.baseSeconds.introduce : t.baseSeconds[spec.cue];
-    return base + t.perCharSeconds * chars;
+    return typeOf(spec).expectedSeconds(spec, this.model.items.get(spec.itemId), this.config);
+  }
+
+  /** The stage, from words Known for recognition. */
+  stage(): Stage {
+    return currentStage(this.model);
   }
 
   /**
@@ -197,6 +204,8 @@ export class Engine {
         return this.append({ kind: 'answer', activityId, text: input.text, latencyMs: input.latencyMs, attempt: a.attempts + 1 });
       case 'dont_know':
         return this.append({ kind: 'dont_know', activityId, latencyMs: input.latencyMs });
+      case 'choice':
+        return this.append({ kind: 'choice', activityId, choice: input.choice, latencyMs: input.latencyMs });
       case 'skip':
         return this.append({ kind: 'skip', activityId });
       case 'dispute':
@@ -222,12 +231,19 @@ export class Engine {
     if (!session.completed) await this.append({ kind: 'session_completed', sessionId });
     const acts = session.activityIds.map((id) => this.model.activities.get(id)!).filter(Boolean);
     const unique = (xs: string[]) => [...new Set(xs)];
-    const missedActs = acts.filter((a) => a.outcome === 'wrong' || a.outcome === 'dont_know');
+    const missedActs = acts.filter(
+      (a) =>
+        a.outcome === 'wrong' ||
+        a.outcome === 'dont_know' ||
+        (a.spec.type === 'dictation' && a.evidence.some((e) => e.direction === 'negative')),
+    );
     const firstBefore = new Map<string, Status>();
     for (const a of acts) {
       for (const ev of a.evidence) {
         const key = `${ev.itemId}|${ev.skill}`;
-        if (!firstBefore.has(key) && a.statusBefore && ev.skill === a.evidence[0]?.skill) firstBefore.set(key, a.statusBefore);
+        if (!firstBefore.has(key) && a.statusBefore && ev.itemId === a.spec.itemId && ev.skill === a.evidence[0]?.skill) {
+          firstBefore.set(key, a.statusBefore);
+        }
       }
     }
     const changes = [...firstBefore.entries()]
@@ -241,16 +257,29 @@ export class Engine {
       .filter((a) => !seenCorrection.has(a.spec.itemId) && seenCorrection.add(a.spec.itemId))
       .map((a) => {
         const item = this.model.items.get(a.spec.itemId)!;
-        const cue = a.spec.type === 'retrieval' ? a.spec.cue : 'en_to_ja';
         const raw = a.answers[0] ?? null;
+        const type = a.spec.type;
+        if (a.spec.type === 'minimal_pair') return { itemId: item.id, type, given: raw, expected: a.spec.answer };
+        if (a.spec.type === 'dictation') {
+          return { itemId: item.id, type, given: raw, expected: a.spec.segments.map((g) => g.text).join('') };
+        }
+        const cue = a.spec.type === 'retrieval' ? a.spec.cue : 'en_to_ja';
         const given = raw !== null && cue === 'kana_to_reading' ? asHiragana(raw) : raw;
-        return { itemId: item.id, given, expected: grade(item, cue, '').expected };
+        return { itemId: item.id, type, given, expected: grade(item, cue, '').expected };
       });
     return {
       sessionId,
-      activities: acts.filter((a) => a.spec.type === 'retrieval').length,
-      newItems: unique(acts.filter((a) => a.statusBefore === 'unseen' || a.spec.type === 'introduce').map((a) => a.spec.itemId)),
-      missed: unique(missedActs.map((a) => a.spec.itemId)),
+      activities: acts.filter((a) => a.spec.type !== 'introduce').length,
+      newItems: unique(
+        acts
+          .filter((a) => a.spec.type === 'introduce' || (a.statusBefore === 'unseen' && a.spec.purpose !== 'first_listen'))
+          .map((a) => a.spec.itemId),
+      ),
+      missed: unique(
+        missedActs.flatMap((a) =>
+          a.spec.type === 'dictation' ? a.evidence.filter((e) => e.direction === 'negative').map((e) => e.itemId) : [a.spec.itemId],
+        ),
+      ),
       becameKnown: unique(changes.filter((c) => c.to === 'known' || c.to === 'maintained').map((c) => c.itemId)),
       corrections,
       changes,
@@ -294,15 +323,9 @@ export class Engine {
     return added;
   }
 
-  /** Minutes per strand since a date. Every step-1 activity is deliberate study. */
-  strandMinutes(since: Date): Record<'input' | 'output' | 'study' | 'fluency', number> {
-    const minutes = { input: 0, output: 0, study: 0, fluency: 0 };
-    for (const a of this.model.activities.values()) {
-      if (new Date(a.startedAt) < since || !a.completedAt) continue;
-      const ms = Math.min(5 * 60_000, new Date(a.completedAt).getTime() - new Date(a.startedAt).getTime());
-      minutes.study += Math.max(0, ms) / 60_000;
-    }
-    return minutes;
+  /** Minutes per strand since a date, each activity counted under its type's strand. */
+  strandMinutes(since: Date): Record<Strand, number> {
+    return strandMinutesSince(this.model, since);
   }
 
   /** The next new items the planner would reach for. */

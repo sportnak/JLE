@@ -32,11 +32,38 @@ export interface Cluster {
   requires?: string[];
 }
 
+/** Two words that differ in one sound feature, written in kana. `kana` lists the kana items both words use. */
+export interface MinimalPair {
+  id: string;
+  itemId: string;
+  a: { kana: string; gloss: string };
+  b: { kana: string; gloss: string };
+  difference: string;
+  kana: string[];
+}
+
+export interface Segment {
+  text: string;
+  reading: string;
+  itemId?: string;
+}
+
+/** A short sentence for dictation. Segments without an item id are untracked glue (particles, です). */
+export interface DictationSentence {
+  id: string;
+  segments: Segment[];
+}
+
 export interface Catalog {
   items: Item[];
   edges: ItemEdge[];
   clusters: Cluster[];
+  pairs?: MinimalPair[];
+  sentences?: DictationSentence[];
 }
+
+export type Strand = 'input' | 'output' | 'study' | 'fluency';
+export type Stage = 1 | 2 | 3 | 4;
 
 export type Cue = 'kana_to_reading' | 'ja_to_en' | 'en_to_ja';
 
@@ -46,15 +73,37 @@ export const CUE_SKILL: Record<Cue, Skill> = {
   en_to_ja: 'write',
 };
 
+export type Purpose = 'review' | 'probe' | 'placement' | 'practice' | 'confirm' | 'first_listen';
+
 export type ActivitySpec =
-  | { type: 'introduce'; itemId: string }
+  | { type: 'introduce'; itemId: string; pairId?: string }
   | {
       type: 'retrieval';
       itemId: string;
       cue: Cue;
-      purpose: 'review' | 'probe' | 'placement' | 'practice' | 'confirm';
+      purpose: Exclude<Purpose, 'first_listen'>;
       showFurigana: boolean;
+    }
+  | {
+      type: 'minimal_pair';
+      itemId: string;
+      purpose: Purpose;
+      pairId: string;
+      /** Both words, in the order shown. */
+      options: [string, string];
+      /** The word that is played. */
+      answer: string;
+    }
+  | {
+      type: 'dictation';
+      /** The word the dictation was chosen for. Every tracked segment gets evidence. */
+      itemId: string;
+      purpose: Purpose;
+      sentenceId: string;
+      segments: Segment[];
     };
+
+export type ActivityTypeId = ActivitySpec['type'];
 
 interface Base {
   id: string;
@@ -72,6 +121,7 @@ export type InteractionEvent = Base &
     | { kind: 'activity_completed'; activityId: string }
     | { kind: 'answer'; activityId: string; text: string; latencyMs: number; attempt: number }
     | { kind: 'dont_know'; activityId: string; latencyMs: number }
+    | { kind: 'choice'; activityId: string; choice: string; latencyMs: number }
     | { kind: 'skip'; activityId: string }
     | { kind: 'dispute'; activityId: string }
     | { kind: 'override'; itemId: string; claim: 'known' }

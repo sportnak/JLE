@@ -1,6 +1,8 @@
-import type { ActivityView, Engine, Feedback, Item, SessionRecap } from '@jle/engine';
-import { useEffect, useRef, useState } from 'react';
+import type { ActivityTypeId, ActivityView, Engine, Feedback, Item, SessionRecap } from '@jle/engine';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toKana } from 'wanakana';
+import { DictationPrompt, MinimalPairPrompt, SoundIntro, type ActivityProps } from './Activities';
+import { useEnter } from './hooks';
 import { speak } from './host';
 import { FontChips, SpeedChoice, VoiceSelect } from './Controls';
 import { JaText, PlayButton, StatusChip, Word, Zoom } from './ui';
@@ -83,23 +85,23 @@ export function SessionView({ engine, sessionId, examples, onExit, onKeepGoing }
       </header>
       {panelOpen && <LessonSettings onClose={() => setPanelOpen(false)} />}
       {activity && (
-        <div className="jle-card activity">
-          {activity.spec.type === 'introduce' ? (
-            <Introduce key={activity.activityId} item={activity.item} example={examples.get(activity.item.id)} onNext={complete} />
-          ) : (
-            <Retrieval
-              key={activity.activityId}
-              engine={engine}
-              activity={activity}
-              example={examples.get(activity.item.id)}
-              onNext={complete}
-            />
-          )}
+        <div className="jle-card activity" key={activity.activityId}>
+          {RENDERERS[activity.spec.type]({ engine, activity, example: examples.get(activity.item.id), onNext: complete })}
         </div>
       )}
     </section>
   );
 }
+
+type RendererProps = ActivityProps & { example: Item | undefined };
+
+/** One renderer per activity type, keyed like the engine's registry. */
+const RENDERERS: Record<ActivityTypeId, (p: RendererProps) => ReactNode> = {
+  introduce: (p) => (p.activity.item.type === 'sound' ? <SoundIntro {...p} /> : <Introduce item={p.activity.item} example={p.example} onNext={p.onNext} />),
+  retrieval: (p) => <Retrieval {...p} />,
+  minimal_pair: (p) => <MinimalPairPrompt {...p} />,
+  dictation: (p) => <DictationPrompt {...p} />,
+};
 
 /** Speed, voice and font, changeable without leaving the lesson. Each applies at once. */
 function LessonSettings({ onClose }: { onClose: () => void }) {
@@ -367,22 +369,6 @@ function expectedOf(fb: Feedback | null): string {
   return fb && 'expected' in fb ? fb.expected : '';
 }
 
-function useEnter(handler: (() => void) | null) {
-  const ref = useRef(handler);
-  ref.current = handler;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.isComposing || !ref.current) return;
-      const t = e.target;
-      if (t instanceof HTMLInputElement || t instanceof HTMLButtonElement || t instanceof HTMLSelectElement) return;
-      e.preventDefault();
-      ref.current();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-}
-
 interface RecapProps {
   recap: SessionRecap;
   engine: Engine;
@@ -402,7 +388,9 @@ function Recap({ recap, engine, session, onDone, onKeepGoing }: RecapProps) {
   const minutes = session ? Math.max(1, Math.round((Date.now() - new Date(session.startedAt).getTime()) / 60_000)) : 0;
   const prompts = (session?.activityIds ?? [])
     .map((id) => engine.learner.activities.get(id))
-    .filter((a): a is NonNullable<typeof a> => !!a && a.spec.type === 'retrieval');
+    .filter((a): a is NonNullable<typeof a> => !!a && a.spec.type !== 'introduce');
+  const promptLabel = (a: (typeof prompts)[number]) =>
+    a.spec.type === 'dictation' ? a.spec.segments.map((g) => g.text).join('') : a.spec.type === 'minimal_pair' ? a.spec.answer : item(a.spec.itemId).written;
 
   const flag = async (activityId: string) => {
     await engine.flagContent(activityId, 'learner flag from recap');
@@ -432,11 +420,13 @@ function Recap({ recap, engine, session, onDone, onKeepGoing }: RecapProps) {
                         <span className="jle-wrong">{c.given}</span> <span className="jle-arrow">→</span>{' '}
                       </>
                     ) : null}
-                    <span className="jle-right">{it.type === 'vocab' ? it.written : c.expected}</span>
+                    <span className="jle-right">{it.type === 'vocab' && c.type === 'retrieval' ? it.written : c.expected}</span>
                   </span>
                   <span className="jle-caption">
-                    {c.given ? '' : 'You said you did not know. '}
-                    {it.type === 'vocab' ? `${it.reading} · ${it.gloss[0]}` : ''}
+                    {c.given ? '' : c.type === 'retrieval' ? 'You said you did not know. ' : 'You did not catch it. '}
+                    {c.type === 'minimal_pair' ? `Which did you hear: ${it.gloss[0]}` : ''}
+                    {c.type === 'dictation' ? 'Dictation' : ''}
+                    {it.type === 'vocab' && c.type === 'retrieval' ? `${it.reading} · ${it.gloss[0]}` : ''}
                   </span>
                 </li>
               );
@@ -503,7 +493,7 @@ function Recap({ recap, engine, session, onDone, onKeepGoing }: RecapProps) {
                     disabled={flagged.has(a.id)}
                     onClick={() => flag(a.id)}
                   >
-                    {item(a.spec.itemId).written}
+                    {promptLabel(a)}
                     {flagged.has(a.id) ? ' · flagged' : ''}
                   </button>
                 ))}
