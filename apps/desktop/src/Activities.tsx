@@ -408,16 +408,26 @@ export function ReadingPrompt({ engine, activity, onNext }: ActivityProps) {
       </p>
       {tapped && (
         <div className="jle-note jle-note-neutral reading-lookup" role="status">
+          {/* The word as it stands in the passage (行き, いき); its dictionary form below when that differs (行く). */}
           <span className="t-reading" lang="ja">
-            {tappedItem?.written ?? tapped.surface}
+            {tapped.surface}
           </span>
-          {(tappedItem?.reading ?? tapped.reading) && (
+          {tapped.reading && tapped.reading !== tapped.surface && (
             <span className="t-body-sm" lang="ja">
-              {tappedItem?.reading ?? tapped.reading}
+              {tapped.reading}
             </span>
           )}
           <span className="t-body-sm">{tappedItem?.gloss.slice(0, 4).join('; ')}</span>
-          <PlayButton text={tappedItem?.reading ?? tapped.reading} />
+          {tappedItem && tappedItem.written !== tapped.surface && (
+            <span className="t-body-sm jle-muted">
+              dictionary form{' '}
+              <span lang="ja">
+                {tappedItem.written}
+                {tappedItem.reading && tappedItem.reading !== tappedItem.written ? ` (${tappedItem.reading})` : ''}
+              </span>
+            </span>
+          )}
+          <PlayButton text={tapped.reading || tapped.surface} />
         </div>
       )}
       <div className="jle-row">
