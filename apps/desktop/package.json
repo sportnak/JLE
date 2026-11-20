@@ -9,7 +9,8 @@
     "typecheck": "tsc -p .",
     "test": "echo 'no ui tests yet'",
     "tokens": "node scripts/build-tokens.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "install-app": "sh scripts/install-app.sh"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.6",

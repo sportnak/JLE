@@ -1,41 +1,17 @@
+import { activityTypes, typeOf } from './activities';
+import type { Candidate, Need, PlanContext } from './activities/types';
+import { hash } from './activities/util';
 import { retrievability, type Scheduler } from './model';
 import type { ActivityRecord, LearnerModel } from './learner';
 import { groupByTrack, nextProbeCluster } from './placement';
-import { CUE_SKILL, type ActivitySpec, type Cue, type Item, type Skill } from './types';
+import { overClosedCap, stageFor, strandPull, STRANDS } from './stage';
+import type { Item, Skill, Stage, Strand } from './types';
 
-export interface Candidate {
-  spec: ActivitySpec;
-  score: number;
-  reason: string;
-}
+export type { Candidate, Need } from './activities/types';
+export { cueFor } from './activities';
 
-export function cueFor(item: Item, skill: Skill): Cue {
-  if (item.type === 'script') return 'kana_to_reading';
-  return skill === 'write' ? 'en_to_ja' : 'ja_to_en';
-}
-
-function retrieval(
-  item: Item,
-  skill: Skill,
-  purpose: Extract<ActivitySpec, { type: 'retrieval' }>['purpose'],
-  cue: Cue = cueFor(item, skill),
-): ActivitySpec {
-  return {
-    type: 'retrieval',
-    itemId: item.id,
-    cue,
-    purpose,
-    showFurigana: cue === 'ja_to_en' && item.written !== item.reading,
-  };
-}
-
-const primarySkill = (item: Item): Skill => (item.skills.includes('write') ? 'write' : 'read');
-
-function hash(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
-  return h >>> 0;
-}
+const primarySkill = (item: Item): Skill =>
+  item.skills.includes('write') ? 'write' : item.skills.includes('read') ? 'read' : (item.skills[0] ?? 'read');
 
 /** Per-item history within one session, in order. */
 function sessionHistory(acts: ActivityRecord[]): Map<string, ActivityRecord[]> {
@@ -44,13 +20,23 @@ function sessionHistory(acts: ActivityRecord[]): Map<string, ActivityRecord[]> {
   return byItem;
 }
 
-const missed = (a: ActivityRecord) => a.spec.type === 'retrieval' && (a.outcome === 'wrong' || a.outcome === 'dont_know');
-const right = (a: ActivityRecord) => a.spec.type === 'retrieval' && (a.outcome === 'correct' || a.outcome === 'self_corrected');
+const attempt = (a: ActivityRecord) => a.spec.type !== 'introduce';
+const missed = (a: ActivityRecord) => attempt(a) && (a.outcome === 'wrong' || a.outcome === 'dont_know');
+const right = (a: ActivityRecord) => attempt(a) && (a.outcome === 'correct' || a.outcome === 'self_corrected');
+const skillOf = (a: ActivityRecord) => typeOf(a.spec).skillOf(a.spec);
+
+export function currentStage(model: LearnerModel): Stage {
+  return stageFor(model.knownWords(), model.config);
+}
 
 /**
  * Scores every candidate activity and returns them best first. The planner never looks further
  * ahead than the next activity. Within a session an item comes back only for a reason: you missed it,
  * it is due, or it was just introduced and gets one later check. A correct answer means it rests.
+ *
+ * First the reasons (needs) are found; then each activity type in the registry offers activities for the
+ * needs it can serve, plus any of its own; then strand balance, the closed-exercise cap and interleaving
+ * adjust the scores.
  */
 export function planCandidates(model: LearnerModel, sessionId: string, now: Date, scheduler: Scheduler): Candidate[] {
   const cfg = model.config.planner;
@@ -61,12 +47,14 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
   const recentItems = new Set(sessionActs.slice(-cfg.relearnGap).map((a) => a.spec.itemId));
   const history = sessionHistory(sessionActs);
   const metThisSession = new Set(history.keys());
-  const candidates: Candidate[] = [];
+  const needs: Need[] = [];
   const last = sessionActs.at(-1);
+  const need = (item: Item, skill: Skill, purpose: Need['purpose'], score: number, reason: string, teach = false) =>
+    needs.push({ item, skill, purpose, score, reason, teach });
 
   if (last?.spec.type === 'introduce') {
     const item = model.items.get(last.spec.itemId);
-    if (item) candidates.push({ spec: retrieval(item, primarySkill(item), 'practice'), score: 1000, reason: 'immediate use' });
+    if (item) need(item, primarySkill(item), 'practice', 1000, 'immediate use');
   }
 
   for (const [itemId, acts] of history) {
@@ -81,21 +69,16 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
 
     const intros = acts.filter((a) => a.spec.type === 'introduce').length;
     if (lastMiss >= 0 && lastMiss > lastRight && untaught && lastIntro < lastMiss && intros < cfg.maxRelearnPerSession) {
-      candidates.push({ spec: { type: 'introduce', itemId }, score: 90, reason: 'missed, teach it' });
-    } else if (lastMiss >= 0 && lastMiss > lastRight && misses <= cfg.maxRelearnPerSession) {
-      const a = acts[lastMiss]!;
-      if (a.spec.type === 'retrieval') {
-        candidates.push({
-          spec: retrieval(item, CUE_SKILL[a.spec.cue], 'practice', a.spec.cue),
-          score: 85,
-          reason: 'missed earlier this session',
-        });
-      }
+      need(item, primarySkill(item), 'practice', 90, 'missed, teach it', true);
+    } else if (lastMiss >= 0 && lastMiss > lastRight && misses <= cfg.maxRelearnPerSession && !acts.slice(lastMiss + 1).some(attempt)) {
+      // A practice attempt after the miss that was skipped closes the reason; it would otherwise come back forever.
+      const skill = skillOf(acts[lastMiss]!);
+      if (skill) need(item, skill, 'practice', 85, 'missed earlier this session');
     } else if (lastIntro >= 0) {
-      const usesSinceIntro = acts.slice(lastIntro + 1).filter((a) => a.spec.type === 'retrieval').length;
+      const usesSinceIntro = acts.slice(lastIntro + 1).filter(attempt).length;
       const sinceLastSeen = sessionActs.length - 1 - sessionActs.lastIndexOf(acts.at(-1)!);
       if (usesSinceIntro === 1 && sinceLastSeen >= cfg.checkGap) {
-        candidates.push({ spec: retrieval(item, primarySkill(item), 'practice'), score: 80, reason: 'one more check' });
+        need(item, primarySkill(item), 'practice', 80, 'one more check');
       }
     }
   }
@@ -105,15 +88,15 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
     const item = model.items.get(s.itemId);
     if (!item) continue;
     if (s.confirmDueAt && new Date(s.confirmDueAt) <= now) {
-      candidates.push({ spec: retrieval(item, s.skill, 'confirm'), score: 60, reason: 'confirm "I know this"' });
+      need(item, s.skill, 'confirm', 60, 'confirm "I know this"');
     } else if (s.card && new Date(s.card.dueAt) <= now) {
       const r = retrievability(scheduler, s.card, now);
-      candidates.push({ spec: retrieval(item, s.skill, 'review'), score: 50 + (1 - r) * 40, reason: 'due' });
+      need(item, s.skill, 'review', 50 + (1 - r) * 40, 'due');
     }
   }
 
-  const placementProbe = nextPlacementProbe(model, sessionId, recentItems);
-  if (placementProbe) candidates.push({ spec: retrieval(placementProbe, primarySkill(placementProbe), 'placement'), score: 70, reason: 'placement' });
+  const placementProbe = nextPlacementProbe(model, sessionId, metThisSession);
+  if (placementProbe) need(placementProbe, primarySkill(placementProbe), 'placement', 70, 'placement');
 
   const newSoFar = sessionActs.filter(
     (a) => (a.spec.type === 'introduce' || a.spec.purpose === 'probe') && history.get(a.spec.itemId)![0] === a,
@@ -121,16 +104,64 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
   if (newSoFar < sessionBudget(model, sessionActs, now, newSoFar)) {
     const teach = teachMode(sessionActs, cfg.teachModeDontKnows);
     frontierPicks(model, metThisSession).forEach((item, i) => {
-      const probe = !teach && model.prior(item.id) >= cfg.probeThreshold;
-      candidates.push({
-        spec: probe ? retrieval(item, primarySkill(item), 'probe') : { type: 'introduce', itemId: item.id },
-        score: 30 - i,
-        reason: probe ? 'new, probably known' : 'new',
-      });
+      // Kana are shown before they are tried; sound features are always tried first.
+      const probe = item.type === 'sound' || (!teach && model.prior(item.id) >= cfg.probeThreshold);
+      need(item, primarySkill(item), 'probe', 30 - i, probe ? 'new, probably known' : 'new', !probe);
     });
   }
 
-  return interleave(model, sessionActs, candidates).sort((a, b) => b.score - a.score);
+  const stage = currentStage(model);
+  const ctx: PlanContext = { model, sessionId, now, scheduler, stage, needs, sessionActs, recentItems, metThisSession };
+  const offered = activityTypes()
+    .filter((t) => t.stages.includes(stage))
+    .flatMap((t) => t.candidates(ctx));
+  const ordered = mix(model, ctx, offered);
+  return interleave(model, sessionActs, ordered)
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .map(({ order: _order, ...c }) => c);
+}
+
+type OrderedCandidate = Candidate & { order: number };
+
+/** Strand balance over the trailing week, and from stage 2 the cap on closed exercises within the session. */
+function mix(model: LearnerModel, ctx: PlanContext, candidates: OrderedCandidate[]): OrderedCandidate[] {
+  let closedMs = 0;
+  let totalMs = 0;
+  const sessionMinutes = Object.fromEntries(STRANDS.map((s) => [s, 0])) as Record<Strand, number>;
+  for (const a of ctx.sessionActs) {
+    const ms = activityMs(a);
+    totalMs += ms;
+    sessionMinutes[typeOf(a.spec).strand] += ms / 60_000;
+    if (typeOf(a.spec).closed) closedMs += ms;
+  }
+  const week = strandMinutesSince(model, new Date(ctx.now.getTime() - 7 * 86_400_000));
+  const pull = strandPull(week, ctx.stage, model.config, sessionMinutes);
+  const isOpen = (c: Candidate) => {
+    const t = typeOf(c.spec);
+    return !t.closed && t.strand !== 'study';
+  };
+  const capped = overClosedCap(closedMs, totalMs, ctx.stage, model.config) && candidates.some(isOpen);
+  return candidates.map((c) => {
+    const t = typeOf(c.spec);
+    let score = c.score + pull[t.strand];
+    if (capped && t.closed) score -= model.config.mix.closedPenalty;
+    return { ...c, score };
+  });
+}
+
+/** Time an activity took, capped so a prompt left open overnight does not count as hours of study. */
+export function activityMs(a: ActivityRecord): number {
+  if (!a.completedAt) return 0;
+  return Math.max(0, Math.min(5 * 60_000, new Date(a.completedAt).getTime() - new Date(a.startedAt).getTime()));
+}
+
+export function strandMinutesSince(model: LearnerModel, since: Date): Record<Strand, number> {
+  const minutes = Object.fromEntries(STRANDS.map((s) => [s, 0])) as Record<Strand, number>;
+  for (const a of model.activities.values()) {
+    if (new Date(a.startedAt) < since || !a.completedAt) continue;
+    minutes[typeOf(a.spec).strand] += activityMs(a) / 60_000;
+  }
+  return minutes;
 }
 
 /**
@@ -139,7 +170,7 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
  */
 export function sessionBudget(model: LearnerModel, acts: ActivityRecord[], now: Date, newSoFar: number): number {
   const recent = acts
-    .filter((a) => a.spec.type === 'retrieval' && a.spec.purpose !== 'placement' && a.outcome && a.outcome !== 'skip')
+    .filter((a) => a.spec.type !== 'introduce' && a.spec.purpose !== 'placement' && a.outcome && a.outcome !== 'skip')
     .slice(-8);
   if (recent.length >= 5) {
     const accuracy = recent.filter(right).length / recent.length;
@@ -185,7 +216,7 @@ export function inKanaStage(model: LearnerModel): boolean {
  * No more than three of the same kind in a row: item type normally, kana group in the kana stage
  * (so hiragana and katakana groups mix). Over-the-limit candidates sink but stay available.
  */
-function interleave(model: LearnerModel, acts: ActivityRecord[], candidates: Candidate[]): Candidate[] {
+function interleave<C extends Candidate>(model: LearnerModel, acts: ActivityRecord[], candidates: C[]): C[] {
   const kanaStage = inKanaStage(model);
   const kind = (itemId: string) => {
     const item = model.items.get(itemId);
@@ -211,7 +242,7 @@ export function newItemBudget(model: LearnerModel, now: Date): number {
 }
 
 function teachMode(acts: ActivityRecord[], threshold: number): boolean {
-  const probes = acts.filter((a) => a.spec.type === 'retrieval' && a.spec.purpose === 'probe').slice(-4);
+  const probes = acts.filter((a) => a.spec.type !== 'introduce' && a.spec.purpose === 'probe').slice(-4);
   return probes.filter((a) => a.outcome === 'wrong' || a.outcome === 'dont_know').length >= threshold;
 }
 
@@ -232,10 +263,15 @@ export function frontierItems(model: LearnerModel, exclude: Set<string>): Item[]
     .sort((a, b) => (clusterOrder.get(a.cluster) ?? 0) - (clusterOrder.get(b.cluster) ?? 0) || a.order - b.order);
 }
 
-/** Never taught: unseen, or only met through a missed probe (no review card yet). */
+/**
+ * Never taught to the point of a review card: unseen, met only through missed probes, or missed again
+ * after teaching (status Learning with no card). Without this last case such an item is never due and
+ * never new, so it would not come back. Items marked Known with no card (placement, "I know this") are taught.
+ */
 function isUntaught(model: LearnerModel, itemId: string, skill: Skill): boolean {
   const s = model.state(itemId, skill);
-  return s.status === 'unseen' || (s.status === 'introduced' && !s.card);
+  if (s.status === 'unseen') return true;
+  return !s.card && (s.status === 'introduced' || s.status === 'learning');
 }
 
 export function clusterReady(model: LearnerModel, clusterId: string): boolean {
@@ -251,7 +287,8 @@ export function clusterReady(model: LearnerModel, clusterId: string): boolean {
 
 function nextPlacementProbe(model: LearnerModel, sessionId: string, exclude: Set<string>): Item | null {
   const placement = model.placement();
-  for (const track of groupByTrack(model.catalog.clusters).values()) {
+  for (const [name, track] of groupByTrack(model.catalog.clusters)) {
+    if (name === 'sound') continue;
     const cluster = nextProbeCluster(track, placement);
     if (!cluster || !clusterReady(model, cluster.id)) continue;
     const pool = model.catalog.items

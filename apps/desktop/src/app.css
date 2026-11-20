@@ -591,3 +591,36 @@ rt {
 .lesson-settings-done {
   justify-self: start;
 }
+
+/* Minimal pairs and dictation */
+.pair-choices {
+  grid-template-columns: 1fr 1fr;
+}
+.pair-choices .jle-choice {
+  justify-content: center;
+  font-size: 24px;
+  min-height: 64px;
+}
+.pair-words {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.pair-word {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+.dict-sentence ruby rt {
+  font-size: 11px;
+}
+.dict-missed {
+  background: var(--vermilion-tint);
+  color: inherit;
+  border-bottom: 2px solid var(--vermilion);
+}
+@media (max-width: 480px) {
+  .pair-words {
+    grid-template-columns: 1fr;
+  }
+}

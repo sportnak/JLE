@@ -31,6 +31,8 @@ pub fn run() {
       events::events_append,
       events::events_reset,
       voice::speak,
+      voice::speak_sequence,
+      voice::prepare_speech,
       voice::voice_info,
       voice::voices,
       voice::voice_terms,

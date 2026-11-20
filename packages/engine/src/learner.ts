@@ -1,18 +1,18 @@
+import { typeOf } from './activities';
+import type { AttemptEvent, GradeContext } from './activities/types';
 import type { EngineConfig } from './config';
-import { grade } from './grading';
 import { applyEvidence, emptyState, pKnownOf, type Scheduler } from './model';
 import { computePlacement, priorFor, type ClusterPlacement } from './placement';
-import {
-  CUE_SKILL,
-  type ActivitySpec,
-  type Catalog,
-  type Direction,
-  type EvidenceEvent,
-  type Feedback,
-  type InteractionEvent,
-  type Item,
-  type ItemSkillState,
-  type Skill,
+import type {
+  ActivitySpec,
+  Catalog,
+  Direction,
+  EvidenceEvent,
+  Feedback,
+  InteractionEvent,
+  Item,
+  ItemSkillState,
+  Skill,
 } from './types';
 
 export type Outcome = 'correct' | 'wrong' | 'dont_know' | 'skip' | 'self_corrected';
@@ -148,9 +148,9 @@ export class LearnerModel {
         return { kind: 'none' };
       }
       case 'answer':
-        return this.onAnswer(e);
       case 'dont_know':
-        return this.onDontKnow(e);
+      case 'choice':
+        return this.onAttempt(e);
       case 'skip': {
         const a = this.activities.get(e.activityId);
         if (a && !a.outcome) a.outcome = 'skip';
@@ -170,7 +170,7 @@ export class LearnerModel {
     const index = session?.activityIds.length ?? 0;
     session?.activityIds.push(e.activityId);
     const spec = e.spec;
-    const skill = spec.type === 'retrieval' ? CUE_SKILL[spec.cue] : null;
+    const skill = typeOf(spec).skillOf(spec);
     this.activities.set(e.activityId, {
       id: e.activityId,
       sessionId: e.sessionId,
@@ -197,71 +197,26 @@ export class LearnerModel {
     return { kind: 'none' };
   }
 
-  private onAnswer(e: Extract<InteractionEvent, { kind: 'answer' }>): Feedback {
+  private onAttempt(e: AttemptEvent): Feedback {
     const a = this.activities.get(e.activityId);
-    if (!a || a.spec.type !== 'retrieval') return { kind: 'none' };
-    const spec = a.spec;
-    const item = this.items.get(spec.itemId);
-    if (!item) return { kind: 'none' };
-    const skill = CUE_SKILL[spec.cue];
-    const production = skill === 'write' || skill === 'speak';
-    const g = grade(item, spec.cue, e.text);
-    const disputed = this.hints.disputed.has(a.id) && this.hints.lastAnswer.get(a.id) === e.id;
-    const correct = g.correct || disputed;
-    a.attempts += 1;
-    a.answers.push(e.text);
-
-    if (a.nudged) {
-      if (correct) {
-        this.emit(a, item, skill, 'positive', this.config.strengths.selfCorrect, e.latencyMs, e.at, null);
-        a.outcome = 'self_corrected';
-        this.expose(item.id, e.at);
-        return { kind: 'correct', expected: g.expected, note: 'Fixed it.' };
-      }
-      this.expose(item.id, e.at);
-      return { kind: 'incorrect', expected: g.expected, note: g.note, canDispute: true };
-    }
-
-    this.recordFirstOutcome(item.id, correct);
-    if (spec.purpose === 'review') this.reviewOutcomes.push({ at: e.at, correct });
-
-    if (correct) {
-      const base = production
-        ? this.config.strengths.promptedProductionCorrect
-        : this.config.strengths.recognitionAnswer;
-      this.emit(a, item, skill, 'positive', base, e.latencyMs, e.at, undefined);
-      a.outcome = 'correct';
-      this.expose(item.id, e.at);
-      return { kind: 'correct', expected: g.expected, note: g.note };
-    }
-
-    const known = ['known', 'maintained'].includes(this.state(item.id, skill).status);
-    const base = production ? this.config.strengths.productionWrong : this.config.strengths.recognitionAnswer;
-    this.emit(a, item, skill, 'negative', base, e.latencyMs, e.at, undefined);
-    a.outcome = 'wrong';
-    if (known && production) {
-      a.nudged = true;
-      return { kind: 'retry', message: 'You know this one. Have another look.' };
-    }
-    this.expose(item.id, e.at);
-    return { kind: 'incorrect', expected: g.expected, note: g.note, canDispute: true };
+    const type = a && typeOf(a.spec);
+    if (!a || !type?.respond) return { kind: 'none' };
+    return type.respond(e, a, this.gradeContext(a, e));
   }
 
-  private onDontKnow(e: Extract<InteractionEvent, { kind: 'dont_know' }>): Feedback {
-    const a = this.activities.get(e.activityId);
-    if (!a || a.spec.type !== 'retrieval') return { kind: 'none' };
-    const item = this.items.get(a.spec.itemId);
-    if (!item) return { kind: 'none' };
-    const expected = grade(item, a.spec.cue, '').expected;
-    if (!a.nudged) {
-      const skill = CUE_SKILL[a.spec.cue];
-      this.recordFirstOutcome(item.id, false);
-      if (a.spec.purpose === 'review') this.reviewOutcomes.push({ at: e.at, correct: false });
-      this.emit(a, item, skill, 'negative', this.config.strengths.dontKnow, e.latencyMs, e.at, undefined);
-      a.outcome = 'dont_know';
-    }
-    this.expose(item.id, e.at);
-    return { kind: 'revealed', expected };
+  /** The only door a code-graded activity has into the model: evidence helpers, no model port. */
+  private gradeContext(a: ActivityRecord, e: AttemptEvent): GradeContext {
+    return {
+      config: this.config,
+      item: (id) => this.items.get(id),
+      state: (itemId, skill) => this.state(itemId, skill),
+      disputed: this.hints.disputed.has(a.id) && this.hints.lastAnswer.get(a.id) === e.id,
+      emit: (item, skill, direction, base, latencyMs, opts) =>
+        this.emit(a, item, skill, direction, base, latencyMs, e.at, opts.fsrs, opts.context, opts.support ?? false),
+      expose: (itemId) => this.expose(itemId, e.at),
+      firstOutcome: (itemId, correct) => this.recordFirstOutcome(itemId, correct),
+      reviewOutcome: (correct) => this.reviewOutcomes.push({ at: e.at, correct }),
+    };
   }
 
   private onOverride(e: Extract<InteractionEvent, { kind: 'override' }>) {
@@ -306,16 +261,16 @@ export class LearnerModel {
     latencyMs: number,
     atIso: string,
     fsrsOverride: EvidenceEvent['fsrsGrade'] | undefined,
+    contextKey: string,
+    support: boolean,
   ) {
-    if (this.hints.flagged.has(a.id) || a.spec.type !== 'retrieval') return;
+    if (this.hints.flagged.has(a.id)) return;
     const m = this.config.modifiers;
     const at = new Date(atIso);
     let strength = base;
     let slow = false;
     if (direction === 'positive') {
-      if (a.spec.showFurigana && a.spec.cue === 'ja_to_en' && item.written !== item.reading) {
-        strength *= m.supportDiscount;
-      }
+      if (support) strength *= m.supportDiscount;
       const seen = this.lastExposure.get(item.id);
       if (seen && at.getTime() - new Date(seen).getTime() < m.recentExposureMinutes * 60_000) {
         strength *= m.recentExposureDiscount;
@@ -337,7 +292,7 @@ export class LearnerModel {
       direction,
       strength,
       baseStrength: base,
-      context: `${a.spec.cue}:${this.dayOf(at)}`,
+      context: `${contextKey}:${this.dayOf(at)}`,
       rulesVersion: this.config.rulesVersion,
       fsrsGrade,
     };
@@ -367,6 +322,15 @@ export class LearnerModel {
     );
     this.states.set(key(ev.itemId, ev.skill), next);
     this.evidence.push(ev);
+  }
+
+  /** Words Known or Maintained for recognition: the vocabulary size that sets the stage. */
+  knownWords(): number {
+    let n = 0;
+    for (const s of this.states.values()) {
+      if (s.skill === 'read' && (s.status === 'known' || s.status === 'maintained') && this.items.get(s.itemId)?.type === 'vocab') n++;
+    }
+    return n;
   }
 
   trailingRetention(now: Date, days = 7): { rate: number; n: number } {

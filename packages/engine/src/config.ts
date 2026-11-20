@@ -1,3 +1,5 @@
+import type { Stage, Strand } from './types';
+
 export interface EngineConfig {
   version: string;
   rulesVersion: string;
@@ -8,6 +10,8 @@ export interface EngineConfig {
     recognitionAnswer: number;
     dontKnow: number;
     override: number;
+    minimalPairChoice: number;
+    dictationItem: number;
   };
   modifiers: {
     supportDiscount: number;
@@ -44,8 +48,22 @@ export interface EngineConfig {
     confirmAfterDays: number;
   };
   timing: {
-    baseSeconds: Record<'introduce' | 'kana_to_reading' | 'ja_to_en' | 'en_to_ja', number>;
+    baseSeconds: Record<'introduce' | 'kana_to_reading' | 'ja_to_en' | 'en_to_ja' | 'minimal_pair' | 'dictation', number>;
     perCharSeconds: number;
+  };
+  mix: {
+    /** Recognition-Known word counts where stages 2, 3 and 4 begin. */
+    stageWords: [number, number, number];
+    strandTargets: Record<Stage, Record<Strand, number>>;
+    /** Pull toward the strand furthest below its target, in score points per unit of share. */
+    strandWeight: number;
+    /** Weight of this session's own strand shares against the trailing week's. */
+    sessionBlend: number;
+    /** Session minutes before its own shares count. */
+    sessionBlendAfterMinutes: number;
+    /** From stage 2, closed code-graded exercises stay under this share of session time. */
+    closedCap: number;
+    closedPenalty: number;
   };
   placement: {
     samplesPerCluster: number;
@@ -56,7 +74,7 @@ export interface EngineConfig {
 
 export const DEFAULT_CONFIG: EngineConfig = {
   version: 'config-1',
-  rulesVersion: 'rules-1',
+  rulesVersion: 'rules-2',
   strengths: {
     promptedProductionCorrect: 0.7,
     productionWrong: 0.8,
@@ -64,6 +82,8 @@ export const DEFAULT_CONFIG: EngineConfig = {
     recognitionAnswer: 0.5,
     dontKnow: 0.7,
     override: 1.0,
+    minimalPairChoice: 0.5,
+    dictationItem: 0.5,
   },
   modifiers: {
     supportDiscount: 0.6,
@@ -100,8 +120,22 @@ export const DEFAULT_CONFIG: EngineConfig = {
     confirmAfterDays: 1,
   },
   timing: {
-    baseSeconds: { introduce: 6, kana_to_reading: 4, ja_to_en: 6, en_to_ja: 7 },
+    baseSeconds: { introduce: 6, kana_to_reading: 4, ja_to_en: 6, en_to_ja: 7, minimal_pair: 5, dictation: 8 },
     perCharSeconds: 1,
+  },
+  mix: {
+    stageWords: [300, 800, 1700],
+    strandTargets: {
+      1: { study: 0.5, input: 0.3, output: 0.1, fluency: 0.1 },
+      2: { study: 0.35, input: 0.3, output: 0.25, fluency: 0.1 },
+      3: { study: 0.25, input: 0.25, output: 0.25, fluency: 0.25 },
+      4: { study: 0.15, input: 0.35, output: 0.3, fluency: 0.2 },
+    },
+    strandWeight: 50,
+    sessionBlend: 0.5,
+    sessionBlendAfterMinutes: 1,
+    closedCap: 0.4,
+    closedPenalty: 200,
   },
   placement: {
     samplesPerCluster: 3,

@@ -1,6 +1,6 @@
 import { toHiragana, toKana } from 'wanakana';
 import { inflections } from './conjugate';
-import type { Cue, Grade, Item } from './types';
+import type { ActivitySpec, Cue, Grade, Item, Segment } from './types';
 
 export const GRADER_VERSION = 'grader-rules-1';
 
@@ -101,4 +101,59 @@ export function editDistance(a: string, b: string): number {
     }
   }
   return d[a.length]![b.length]!;
+}
+
+const VOWEL_OF: Record<string, string> = Object.fromEntries(
+  ['あかさたなはまやらわがざだばぱぁゃ', 'いきしちにひみりぎじぢびぴぃ', 'うくすつぬふむゆるぐずづぶぷぅゅ', 'えけせてねへめれげぜでべぺぇ', 'おこそとのほもよろをごぞどぼぽぉょ']
+    .flatMap((row, i) => [...row].map((c) => [c, 'あいうえお'[i]!])),
+);
+
+/** Kana for comparing what was heard: hiragana, no spaces or punctuation, ー spelled out, ぢづを folded. */
+export function normalizeReading(text: string): string {
+  let s = asHiragana(text).replace(/[。、！？!?,.・「」]/g, '');
+  s = s.replace(/(.)ー/g, (_, prev: string) => prev + (VOWEL_OF[prev] ?? ''));
+  return foldHomophones(s);
+}
+
+export interface MinimalPairGrade {
+  correct: boolean;
+  expected: string;
+}
+
+export function gradeMinimalPair(spec: Extract<ActivitySpec, { type: 'minimal_pair' }>, choice: string): MinimalPairGrade {
+  return { correct: choice === spec.answer, expected: spec.answer };
+}
+
+export interface DictationGrade {
+  correct: boolean;
+  expected: string;
+  /** Per segment: whether it was heard. */
+  heard: boolean[];
+}
+
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const forms = (seg: Segment) => [...new Set([normalizeReading(seg.reading), normalizeReading(seg.text)])].filter(Boolean);
+
+/**
+ * Compares a typed transcript with the sentence by reading. Each segment may be typed as its reading or its
+ * written form (は or わ for the particle). Segments are found in order, so one slip costs only its own word.
+ */
+export function gradeDictation(segments: Segment[], answer: string): DictationGrade {
+  const given = normalizeReading(answer);
+  const expected = segments.map((s) => s.reading).join('');
+  const whole = new RegExp(`^${segments.map((s) => `(?:${forms(s).map(escape).join('|')})`).join('')}$`);
+  const correct = given !== '' && whole.test(given);
+  let pos = 0;
+  const heard = segments.map((seg) => {
+    if (correct) return true;
+    const hits = forms(seg)
+      .map((f) => ({ at: given.indexOf(f, pos), len: f.length }))
+      .filter((h) => h.at >= 0)
+      .sort((a, b) => a.at - b.at);
+    const hit = hits[0];
+    if (!hit) return false;
+    pos = hit.at + hit.len;
+    return true;
+  });
+  return { correct, expected, heard };
 }

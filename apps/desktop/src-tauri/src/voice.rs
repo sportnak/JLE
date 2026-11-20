@@ -3,7 +3,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
@@ -11,8 +12,22 @@ const VOICEVOX_URL: &str = "http://127.0.0.1:50021"; // matches voicevox::HOST a
 /// 四国めたん (ノーマル), used until a voice is chosen in Settings.
 const DEFAULT_SPEAKER: u32 = 2;
 
+/// What is playing now. Each new request bumps `generation`, which stops any sequence still running.
 #[derive(Default)]
-pub struct Voice(Mutex<Option<Child>>);
+pub struct Voice {
+  current: Arc<Mutex<Option<Child>>>,
+  generation: Arc<AtomicU64>,
+}
+
+impl Voice {
+  fn interrupt(&self) -> u64 {
+    let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    if let Some(mut child) = self.current.lock().unwrap().take() {
+      let _ = child.kill();
+    }
+    generation
+  }
+}
 
 #[derive(serde::Serialize)]
 pub struct Spoken {
@@ -35,10 +50,8 @@ pub async fn speak(
     .await
     .map_err(|e| e.to_string())?;
 
-  let mut current = voice.0.lock().unwrap();
-  if let Some(mut child) = current.take() {
-    let _ = child.kill();
-  }
+  voice.interrupt();
+  let mut current = voice.current.lock().unwrap();
   match rendered {
     Ok(clip) => {
       *current = Some(play(&clip)?);
@@ -50,6 +63,85 @@ pub async fn speak(
       Ok(Spoken { engine: "system" })
     }
   }
+}
+
+enum Source {
+  Clip(PathBuf),
+  Say(String),
+}
+
+fn render_all(cache: &Path, texts: &[String], speaker: u32, speed: f32) -> Vec<Source> {
+  texts
+    .iter()
+    .map(|t| match voicevox_clip(cache, t, speaker, speed) {
+      Ok(clip) => Source::Clip(clip),
+      Err(_) => Source::Say(t.clone()),
+    })
+    .collect()
+}
+
+/// Plays several phrases one after another with a pause between, such as the two words of a minimal pair.
+/// Any later request stops the rest of the sequence.
+#[tauri::command]
+pub async fn speak_sequence(
+  app: AppHandle,
+  voice: State<'_, Voice>,
+  texts: Vec<String>,
+  speaker: Option<u32>,
+  speed: Option<f32>,
+  gap_ms: Option<u64>,
+) -> Result<(), String> {
+  let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("audio");
+  let speaker = speaker.unwrap_or(DEFAULT_SPEAKER);
+  let speed = clamp_speed(speed);
+  let sources = tauri::async_runtime::spawn_blocking(move || render_all(&cache, &texts, speaker, speed))
+    .await
+    .map_err(|e| e.to_string())?;
+  let generation = voice.interrupt();
+  let (current, counter) = (voice.current.clone(), voice.generation.clone());
+  let gap = Duration::from_millis(gap_ms.unwrap_or(600).min(3000));
+  std::thread::spawn(move || {
+    for (i, source) in sources.iter().enumerate() {
+      if counter.load(Ordering::SeqCst) != generation {
+        return;
+      }
+      if i > 0 {
+        std::thread::sleep(gap);
+      }
+      let child = match source {
+        Source::Clip(clip) => play(clip),
+        Source::Say(text) => system_voice(text, speed),
+      };
+      let Ok(child) = child else { return };
+      *current.lock().unwrap() = Some(child);
+      while counter.load(Ordering::SeqCst) == generation {
+        let done = match current.lock().unwrap().as_mut() {
+          Some(c) => !matches!(c.try_wait(), Ok(None)),
+          None => true,
+        };
+        if done {
+          break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+      }
+    }
+  });
+  Ok(())
+}
+
+/// Renders clips into the cache without playing them, so the first play of a prompt starts at once.
+#[tauri::command]
+pub async fn prepare_speech(app: AppHandle, texts: Vec<String>, speaker: Option<u32>, speed: Option<f32>) -> Result<(), String> {
+  let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("audio");
+  let speaker = speaker.unwrap_or(DEFAULT_SPEAKER);
+  let speed = clamp_speed(speed);
+  tauri::async_runtime::spawn_blocking(move || {
+    for text in &texts {
+      let _ = voicevox_clip(&cache, text, speaker, speed);
+    }
+  })
+  .await
+  .map_err(|e| e.to_string())
 }
 
 /// Renders (or reuses) a VOICEVOX clip for `text`. Pass kana to force a reading.
@@ -273,6 +365,31 @@ mod tests {
     let voices = list_voices().unwrap();
     assert!(voices.len() > 10, "got {}", voices.len());
     assert!(voices.iter().any(|v| v.id == DEFAULT_SPEAKER && v.style == "ノーマル"));
+  }
+
+  #[test]
+  fn interrupting_bumps_the_generation() {
+    let voice = Voice::default();
+    let first = voice.interrupt();
+    assert_eq!(voice.interrupt(), first + 1, "a newer request supersedes a running sequence");
+  }
+
+  #[test]
+  fn renders_a_minimal_pair_as_two_clips_or_falls_back_per_word() {
+    let cache = std::env::temp_dir().join(format!("jle-pair-test-{}", std::process::id()));
+    let texts = vec!["おばさん".to_string(), "おばあさん".to_string()];
+    let sources = render_all(&cache, &texts, DEFAULT_SPEAKER, 1.0);
+    assert_eq!(sources.len(), 2);
+    if ureq::get(format!("{VOICEVOX_URL}/version")).call().is_ok() {
+      let paths: Vec<_> = sources.iter().filter_map(|s| if let Source::Clip(p) = s { Some(p.clone()) } else { None }).collect();
+      assert_eq!(paths.len(), 2);
+      assert_ne!(paths[0], paths[1], "each word of the pair is its own clip");
+      let (short, long) = (std::fs::metadata(&paths[0]).unwrap().len(), std::fs::metadata(&paths[1]).unwrap().len());
+      assert!(long > short, "the long vowel makes a longer clip ({long} vs {short} bytes)");
+    } else {
+      assert!(sources.iter().all(|s| matches!(s, Source::Say(_))));
+    }
+    let _ = std::fs::remove_dir_all(&cache);
   }
 
   /// Runs only when a VOICEVOX engine is listening locally.
