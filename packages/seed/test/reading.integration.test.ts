@@ -6,6 +6,7 @@ import {
   MemoryEventStore,
   checkPassage,
   mapTokens,
+  parseQuestions,
   type Dictionary,
   type DictionaryEntry,
   type EngineConfig,
@@ -110,11 +111,15 @@ function fakeLlm(texts: string[], verdicts: boolean[] = [true]) {
       if (route === 'review') {
         reviews.push(request);
         const bad = verdicts[Math.min(reviews.length - 1, verdicts.length - 1)] === false;
-        return { output: { natural: !bad, translationMatches: true, problems: bad ? ['「骨董品を鑑定しました」は不自然です'] : [] }, stopReason: 'end_turn', model: 'claude-sonnet-5-5', callId: `review-${reviews.length}` };
+        return { output: { natural: !bad, translationMatches: true, questionsOk: true, problems: bad ? ['「骨董品を鑑定しました」は不自然です'] : [] }, stopReason: 'end_turn', model: 'claude-sonnet-5-5', callId: `review-${reviews.length}` };
       }
       requests.push(request);
       const text = texts[Math.min(i++, texts.length - 1)]!;
-      return { output: { title: '朝', text, translation: 'A passage.' }, stopReason: 'end_turn', model: 'claude-opus-5-5', callId: `call-${i}` };
+      const questions = [
+        { question: 'What does the writer drink?', options: ['Coffee', 'Tea', 'Water'], answer: 0, word: 'コーヒー' },
+        { question: 'Is it every day?', options: ['Yes', 'No', 'Only on Sundays'], answer: 0, word: '' },
+      ];
+      return { output: { title: '朝', text, translation: 'A passage.', questions }, stopReason: 'end_turn', model: 'claude-opus-5-5', callId: `call-${i}` };
     }),
   };
   return { llm, requests, reviews };
@@ -478,5 +483,125 @@ describe('mapping words the tokenizer reads another way', () => {
   it('an affix keeps its own entry', async () => {
     const mapped = await mapTokens(t('時', 'じ', '名詞'), dict, catalog);
     expect(mapped.tokens[0]!.itemId).toBe('jmdict:2020680');
+  });
+});
+
+describe('questions on a passage', () => {
+  /** Reads the waiting passage in a session, answering each question with `answer`. Returns the session's activities. */
+  async function readAndAnswer(engine: Engine, clock: { advance(ms: number): void }, answer: (options: string[], right: string) => string | null) {
+    let { sessionId, next } = await engine.startSession(10);
+    for (let guard = 0; !next.done && guard < 300; guard++) {
+      const v = next.activity;
+      if (v.spec.type === 'reading') await engine.finishReading(v.activityId, 20_000);
+      else if (v.spec.type === 'comprehension') {
+        const pick = answer(v.spec.options, v.spec.answer);
+        await engine.recordInteraction(v.activityId, pick === null ? { kind: 'dont_know', latencyMs: 3000 } : { kind: 'choice', choice: pick, latencyMs: 3000 });
+      } else if (v.spec.type === 'retrieval') {
+        await engine.recordInteraction(v.activityId, { kind: 'answer', text: v.spec.cue === 'ja_to_en' ? v.item.gloss[0]! : v.item.reading, latencyMs: 2000 });
+      }
+      clock.advance(8000);
+      await engine.completeActivity(v.activityId);
+      next = await engine.nextActivity(sessionId);
+    }
+    return engine.learner.sessions.get(sessionId)!.activityIds.map((id) => engine.learner.activities.get(id)!);
+  }
+
+  it('questions are stored with the passage and asked straight after it', async () => {
+    const { engine, clock, contents } = await learner([EASY]);
+    await engine.prepareReading();
+    const qs = contents.contents[0]!.questions!;
+    expect(qs).toHaveLength(2);
+    expect(qs[0]).toMatchObject({ prompt: 'What does the writer drink?', answer: 0, itemId: word('コーヒー').id });
+    expect(qs[1]!.itemId).toBeUndefined();
+    const acts = await readAndAnswer(engine, clock, (_o, right) => right);
+    const at = acts.findIndex((a) => a.spec.type === 'reading');
+    expect(acts.slice(at + 1, at + 3).map((a) => a.spec.type)).toEqual(['comprehension', 'comprehension']);
+    expect(acts.filter((a) => a.spec.type === 'comprehension')).toHaveLength(2);
+  });
+
+  it('a hinge question gives the word recognition evidence; a gist question gives none', async () => {
+    const { engine, clock } = await learner([EASY]);
+    await engine.prepareReading();
+    const acts = await readAndAnswer(engine, clock, (options, right) => options.find((o) => o !== right)!);
+    const [hinge, gist] = acts.filter((a) => a.spec.type === 'comprehension');
+    expect(hinge!.outcome).toBe('wrong');
+    expect(hinge!.evidence).toEqual([expect.objectContaining({ itemId: word('コーヒー').id, skill: 'read', direction: 'negative', baseStrength: config.strengths.comprehension, fsrsGrade: null })]);
+    expect(gist!.evidence).toEqual([]);
+  });
+
+  it('options keep a fixed order, so replay shows the same question', async () => {
+    const { engine, clock, make } = await learner([EASY]);
+    await engine.prepareReading();
+    await readAndAnswer(engine, clock, (_o, right) => right);
+    const replayed = await make(null);
+    const shown = (e: Engine) => [...e.learner.activities.values()].filter((a) => a.spec.type === 'comprehension').map((a) => a.spec);
+    expect(shown(replayed)).toEqual(shown(engine));
+    expect([...replayed.learner.states.entries()]).toEqual([...engine.learner.states.entries()]);
+  });
+
+  it('only well-formed questions are kept', () => {
+    const targets = [word('コーヒー')];
+    expect(
+      parseQuestions(
+        [
+          { question: 'ok', options: ['a', 'b', 'c'], answer: 2, word: 'コーヒー' },
+          { question: 'two options', options: ['a', 'b'], answer: 0, word: '' },
+          { question: 'repeated', options: ['a', 'a', 'b'], answer: 0, word: '' },
+          { question: 'out of range', options: ['a', 'b', 'c'], answer: 3, word: '' },
+          { question: '', options: ['a', 'b', 'c'], answer: 0, word: '' },
+        ],
+        targets,
+      ),
+    ).toEqual([{ prompt: 'ok', options: ['a', 'b', 'c'], answer: 2, itemId: word('コーヒー').id }]);
+  });
+
+  it('a library passage brings its questions, hinged on its own words', async () => {
+    const lib: LibraryPassage[] = [
+      { id: 'easy', level: 2, title: '朝', text: EASY, translation: '…', questions: [{ question: 'What?', options: ['Coffee', 'Tea', 'Water'], answer: 0, word: 'コーヒー' }] },
+    ];
+    const { engine, contents } = await learner([], 25, EASY_WORDS, config, { model: false, library: lib });
+    await engine.prepareReading();
+    expect(contents.contents[0]!.questions).toEqual([{ prompt: 'What?', options: ['Coffee', 'Tea', 'Water'], answer: 0, itemId: word('コーヒー').id }]);
+  });
+
+  it('every library passage has a well-formed question', () => {
+    for (const p of LIBRARY) {
+      expect(p.questions?.length, p.id).toBeGreaterThan(0);
+      for (const q of p.questions!) {
+        expect(new Set(q.options).size, p.id).toBe(3);
+        expect(q.answer >= 0 && q.answer < 3, p.id).toBe(true);
+        expect(q.word.length, p.id).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe('polite prefixes', () => {
+  const split = (noun: string, reading: string) => {
+    const prefix = tokens([['お', 'お', 'お', 'お', '接頭辞']])[0]!;
+    const n = { ...tokens([[noun, noun, reading, reading, '名詞']])[0]!, begin: 1, end: 1 + [...noun].length };
+    return [prefix, n];
+  };
+  const tea = word('お茶');
+  const dict: Dictionary = {
+    lookup: async (keys) =>
+      keys.map((k) =>
+        k.lemma === 'お茶'
+          ? { id: Number(tea.id.slice('jmdict:'.length)), written: 'お茶', reading: 'おちゃ', freqRank: tea.tags.freq ?? null, pos: ['n'], gloss: ['tea'] }
+          : k.lemma === '茶'
+            ? { id: 1427220, written: '茶', reading: 'ちゃ', freqRank: 5000, pos: ['n'], gloss: ['tea (plant)'] }
+            : null,
+      ),
+  };
+
+  it('お + 茶 is read as お茶, the word the learner learns', async () => {
+    const mapped = await mapTokens(split('茶', 'ちゃ'), dict, catalog);
+    expect(mapped.tokens).toEqual([{ surface: 'お茶', reading: 'おちゃ', begin: 0, end: 2, itemId: tea.id }]);
+  });
+
+  it('falls back to the bare noun when the joined word is not in the dictionary', async () => {
+    const only: Dictionary = { lookup: async (keys) => keys.map((k) => (k.lemma === '茶' ? { id: 1427220, written: '茶', reading: 'ちゃ', freqRank: 5000, pos: ['n'], gloss: ['tea'] } : null)) };
+    const mapped = await mapTokens(split('茶', 'ちゃ'), only, catalog);
+    expect(mapped.tokens[0]).toMatchObject({ surface: 'お茶', itemId: 'jmdict:1427220' });
   });
 });

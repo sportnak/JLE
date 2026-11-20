@@ -448,3 +448,181 @@ export function ReadingPrompt({ engine, activity, onNext }: ActivityProps) {
     </div>
   );
 }
+
+type QuestionSpec = Extract<ActivitySpec, { type: 'comprehension' }>;
+
+/** A question on the passage just read: three options, keys 1–3, or "I'm not sure". */
+export function ComprehensionPrompt({ engine, activity, onNext }: ActivityProps) {
+  const spec = activity.spec as QuestionSpec;
+  const content = engine.content(spec.contentId);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const shownAt = useRef(performance.now());
+  useEnter(feedback ? onNext : null);
+
+  const send = async (choice: string | null) => {
+    if (feedback) return;
+    const latencyMs = Math.round(performance.now() - shownAt.current);
+    setChosen(choice);
+    setFeedback(
+      await engine.recordInteraction(
+        activity.activityId,
+        choice === null ? { kind: 'dont_know', latencyMs } : { kind: 'choice', choice, latencyMs },
+      ),
+    );
+  };
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const option = spec.options[Number(e.key) - 1];
+      if (option && !(e.target instanceof HTMLInputElement)) void sendRef.current(option);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [spec.options]);
+
+  return (
+    <div className="jle-stack">
+      <span className="jle-label">ABOUT THE PASSAGE</span>
+      {content && (
+        <p className="t-body jle-muted reading-recall" lang="ja">
+          {content.text}
+        </p>
+      )}
+      <p className="cue-english">{spec.prompt}</p>
+      <div className="jle-choices question-choices" role="group" aria-label="Answers">
+        {spec.options.map((option, i) => (
+          <button
+            key={option}
+            className="jle-btn jle-choice"
+            aria-pressed={chosen === option}
+            aria-keyshortcuts={String(i + 1)}
+            disabled={!!feedback}
+            onClick={() => void send(option)}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+      {!feedback && (
+        <button type="button" className="jle-btn jle-btn-dk" onClick={() => void send(null)}>
+          I'm not sure
+        </button>
+      )}
+      {feedback && (
+        <>
+          <div className={`jle-note ${feedback.kind === 'correct' ? 'jle-note-good' : feedback.kind === 'revealed' ? 'jle-note-neutral' : 'jle-note-bad'}`} role="status">
+            <b>{feedback.kind === 'correct' ? 'Yes.' : feedback.kind === 'revealed' ? 'Noted.' : 'Not quite.'}</b>
+            <span>{feedback.kind === 'correct' ? '' : `It was: ${spec.answer}`}</span>
+          </div>
+          {spec.hinge && feedback.kind !== 'correct' && (
+            <p className="t-body-sm jle-muted">
+              It turns on <span lang="ja">{activity.item.written}</span> ({activity.item.gloss[0]}).
+            </p>
+          )}
+          <NextButton onNext={onNext} />
+          <Flag engine={engine} activityId={activity.activityId} onNext={onNext} />
+        </>
+      )}
+    </div>
+  );
+}
+
+type FormSpec = Extract<ActivitySpec, { type: 'transformation' }>;
+
+/** Make a form of a known word: polite past of 食べる. Typed in kana (romaji turns into kana) and checked by the conjugator. */
+export function TransformationPrompt({ engine, activity, onNext }: ActivityProps) {
+  const spec = activity.spec as FormSpec;
+  const { item } = activity;
+  const [text, setText] = useState('');
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [busy, setBusy] = useState(false);
+  const shownAt = useRef(performance.now());
+  const input = useRef<HTMLInputElement>(null);
+  useEnter(feedback ? onNext : null);
+  useEffect(() => input.current?.focus(), []);
+
+  const send = async (kind: 'answer' | 'dont_know' | 'skip' | 'dispute') => {
+    if (busy) return;
+    setBusy(true);
+    const latencyMs = Math.round(performance.now() - shownAt.current);
+    const fb = await engine.recordInteraction(
+      activity.activityId,
+      kind === 'answer' ? { kind, text, latencyMs } : kind === 'dont_know' ? { kind, latencyMs } : { kind },
+    );
+    setBusy(false);
+    if (kind === 'skip') return onNext();
+    if (kind === 'dispute') return setFeedback({ kind: 'correct', expected: spec.expected[0] ?? '', note: 'Counted as right.' });
+    setFeedback(fb);
+  };
+
+  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const composing = (e.nativeEvent as InputEvent).isComposing;
+    setText(composing ? e.target.value : toKana(e.target.value, { IMEMode: true }));
+  };
+
+  return (
+    <div className="jle-stack">
+      <span className="jle-label">MAKE THE {spec.form.toUpperCase()}</span>
+      <span className="cue-word" lang="ja">
+        <ruby>
+          {item.written}
+          {item.written !== item.reading && <rt className="t-furigana">{item.reading}</rt>}
+        </ruby>
+      </span>
+      <p className="t-body-sm jle-muted">{item.gloss[0]}</p>
+      {!feedback && (
+        <form
+          className="jle-stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim()) void send('answer');
+          }}
+        >
+          <input
+            ref={input}
+            className="jle-input"
+            value={text}
+            onChange={onChange}
+            lang="ja"
+            aria-label={`The ${spec.form}`}
+            placeholder="Type it in kana"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+          />
+          <div className="answer-actions">
+            <button type="submit" className="jle-btn jle-btn-primary" disabled={!text.trim() || busy}>
+              Check
+            </button>
+            <button type="button" className="jle-btn jle-btn-dk" onClick={() => void send('dont_know')} disabled={busy}>
+              I don't know
+            </button>
+          </div>
+          <button type="button" className="link-btn skip" onClick={() => void send('skip')} disabled={busy}>
+            Skip
+          </button>
+        </form>
+      )}
+      {feedback && (
+        <>
+          <div className={`jle-note ${feedback.kind === 'correct' ? 'jle-note-good' : feedback.kind === 'revealed' ? 'jle-note-neutral' : 'jle-note-bad'}`} role="status">
+            <b>{feedback.kind === 'correct' ? 'Yes.' : feedback.kind === 'revealed' ? 'Noted.' : 'Not quite.'}</b>
+            <span lang="ja">{spec.expected.join(' / ')}</span>
+          </div>
+          {feedback.kind === 'incorrect' && feedback.canDispute && (
+            <div className="jle-row">
+              <button className="jle-btn" onClick={() => void send('dispute')}>
+                Count it as right
+              </button>
+            </div>
+          )}
+          <NextButton onNext={onNext} />
+          <Flag engine={engine} activityId={activity.activityId} onNext={onNext} />
+        </>
+      )}
+    </div>
+  );
+}

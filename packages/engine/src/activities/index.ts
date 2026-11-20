@@ -1,9 +1,11 @@
 import type { ActivitySpec, ActivityTypeId } from '../types';
+import { comprehension } from './comprehension';
 import { dictation } from './dictation';
 import { introduce } from './introduce';
 import { minimalPair } from './minimalPair';
 import { reading } from './reading';
 import { retrieval } from './retrieval';
+import { transformation } from './transformation';
 import type { ActivityType, Registry } from './types';
 
 /** Every activity type the planner can choose from. A new type is a new entry here, never a planner change. */
@@ -13,6 +15,8 @@ export const REGISTRY: Registry = {
   minimal_pair: minimalPair,
   dictation,
   reading,
+  comprehension,
+  transformation,
 };
 
 export const activityTypes = (): ActivityType[] => Object.values(REGISTRY) as ActivityType[];
@@ -25,3 +29,4 @@ export type { ActivityType, Candidate, GradeContext, Need, PlanContext } from '.
 export { cueFor, retrievalSpec } from './retrieval';
 export { eligiblePairs } from './minimalPair';
 export { readyForDictation } from './dictation';
+export { transformationSpec } from './transformation';

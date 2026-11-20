@@ -127,7 +127,7 @@
 
 .t-furigana {
   font-family: var(--font-sans);
-  font-size: 10px;
-  line-height: 12px;
+  font-size: calc(10px * var(--furigana-scale, 1));
+  line-height: calc(12px * var(--furigana-scale, 1));
   font-weight: 500;
 }

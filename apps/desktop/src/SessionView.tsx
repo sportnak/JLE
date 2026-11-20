@@ -1,10 +1,10 @@
 import type { ActivityTypeId, ActivityView, Engine, Feedback, Item, SessionRecap } from '@jle/engine';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toKana } from 'wanakana';
-import { DictationPrompt, MinimalPairPrompt, ReadingPrompt, SoundIntro, type ActivityProps } from './Activities';
+import { ComprehensionPrompt, TransformationPrompt, DictationPrompt, MinimalPairPrompt, ReadingPrompt, SoundIntro, type ActivityProps } from './Activities';
 import { useEnter } from './hooks';
 import { speak } from './host';
-import { FontChips, SpeedChoice, VoiceSelect } from './Controls';
+import { FontChips, FuriganaSizeChips, SpeedChoice, TextSizeChips, VoiceSelect } from './Controls';
 import { JaText, PlayButton, StatusChip, Word, Zoom } from './ui';
 
 interface Props {
@@ -104,6 +104,8 @@ export const RENDERERS: Record<ActivityTypeId, (p: RendererProps) => ReactNode> 
   minimal_pair: (p) => <MinimalPairPrompt {...p} />,
   dictation: (p) => <DictationPrompt {...p} />,
   reading: (p) => <ReadingPrompt {...p} />,
+  comprehension: (p) => <ComprehensionPrompt {...p} />,
+  transformation: (p) => <TransformationPrompt {...p} />,
 };
 
 /** Speed, voice and font, changeable without leaving the lesson. Each applies at once. */
@@ -128,6 +130,14 @@ function LessonSettings({ onClose }: { onClose: () => void }) {
       <div className="setting-row">
         <span className="jle-label">JAPANESE FONT</span>
         <FontChips />
+      </div>
+      <div className="setting-row">
+        <span className="jle-label">TEXT SIZE</span>
+        <TextSizeChips />
+      </div>
+      <div className="setting-row">
+        <span className="jle-label">FURIGANA</span>
+        <FuriganaSizeChips />
       </div>
       <button className="jle-btn lesson-settings-done" onClick={onClose}>
         Back to the lesson

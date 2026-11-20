@@ -1,10 +1,10 @@
 import type { EngineConfig } from '../config';
 import type { LearnerModel } from '../learner';
 import type { Dictionary, DictionaryEntry, Ids, Llm, LlmRequest, Token, Tokenizer } from '../ports';
-import type { Catalog, ContentToken, Item, StoredContent } from '../types';
+import type { Catalog, ContentQuestion, ContentToken, Item, StoredContent } from '../types';
 
-export const READING_PROMPT_VERSION = 'reading-1';
-export const REVIEW_PROMPT_VERSION = 'review-1';
+export const READING_PROMPT_VERSION = 'reading-2';
+export const REVIEW_PROMPT_VERSION = 'review-2';
 
 /** Where words beyond the built-in list go when a passage brings them in. Taught only if looked up. */
 export const EXTRA_CLUSTER = 'reading-extra';
@@ -25,7 +25,8 @@ export const READING_SYSTEM = `You write very short Japanese reading passages fo
 Return JSON with:
 - title: a short Japanese title
 - text: the passage, as one paragraph
-- translation: a natural English translation of the passage`;
+- translation: a natural English translation of the passage
+- questions: one or two multiple-choice questions, in English, about what the passage says. Each must need one of the listed words to answer: name that word in \`word\`, written exactly as listed. Give three short English options, exactly one of them right according to the passage, and the index (0 to 2) of the right one in \`answer\`.`;
 
 export const READING_SCHEMA = {
   type: 'object',
@@ -33,17 +34,32 @@ export const READING_SCHEMA = {
     title: { type: 'string' },
     text: { type: 'string' },
     translation: { type: 'string' },
+    questions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          question: { type: 'string' },
+          options: { type: 'array', items: { type: 'string' } },
+          answer: { type: 'integer' },
+          word: { type: 'string' },
+        },
+        required: ['question', 'options', 'answer', 'word'],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ['title', 'text', 'translation'],
+  required: ['title', 'text', 'translation', 'questions'],
   additionalProperties: false,
 };
 
-/** The second look (route `review`, a different model): is the Japanese natural, and does the English match it? */
+/** The second look (route `review`, a different model): natural Japanese, a matching translation, sound questions. */
 export const REVIEW_SYSTEM = `You check short Japanese reading passages written for beginners, before a learner sees them.
 
-Judge two things:
+Judge three things:
 - natural: every sentence is correct, natural Japanese a native speaker would accept: grammar, particles, word choice, counters, and a consistent polite style.
 - translationMatches: the English says what the Japanese says, with nothing important added or left out.
+- questionsOk: each question has exactly one option that is right according to the Japanese passage, and the others are clearly wrong.
 
 List each concrete problem in problems, quoting the Japanese it concerns. Be strict about mistakes and unnatural phrasing; do not object to simple vocabulary or short sentences, which are intended. If there are no problems, return an empty list.`;
 
@@ -52,17 +68,19 @@ export const REVIEW_SCHEMA = {
   properties: {
     natural: { type: 'boolean' },
     translationMatches: { type: 'boolean' },
+    questionsOk: { type: 'boolean' },
     problems: { type: 'array', items: { type: 'string' } },
   },
-  required: ['natural', 'translationMatches', 'problems'],
+  required: ['natural', 'translationMatches', 'questionsOk', 'problems'],
   additionalProperties: false,
 };
 
-export function reviewRequest(title: string, text: string, translation: string, sessionId?: string): LlmRequest {
+export function reviewRequest(title: string, text: string, translation: string, questions: ContentQuestion[], sessionId?: string): LlmRequest {
+  const qs = questions.map((q, i) => `${i + 1}. ${q.prompt}\n${q.options.map((o, k) => `   ${'abc'[k]}) ${o}${k === q.answer ? '  (marked right)' : ''}`).join('\n')}`).join('\n');
   return {
     promptVersion: REVIEW_PROMPT_VERSION,
     system: REVIEW_SYSTEM,
-    user: `Title: ${title}\n\nJapanese:\n${text}\n\nEnglish:\n${translation}`,
+    user: `Title: ${title}\n\nJapanese:\n${text}\n\nEnglish:\n${translation}\n\nQuestions:\n${qs || '(none)'}`,
     schema: REVIEW_SCHEMA,
     maxTokens: 4000,
     effort: 'medium',
@@ -177,13 +195,52 @@ function listedSameWord(catalog: Catalog, lemma: string, entry: DictionaryEntry)
  * Maps tracked tokens to items through the host's dictionary. Words it cannot find stay untracked. Every item it maps
  * to is returned, so stored content replays the same even if the built-in word list changes later.
  */
+const POLITE_PREFIX = new Set(['お', 'ご', '御']);
+
+/**
+ * Sudachi splits a polite prefix from its noun (お茶 → お + 茶), but the dictionary lists the joined word, and that is the
+ * word a learner learns. A prefix and the noun after it become one token; mapping falls back to the noun alone when the
+ * dictionary has no joined entry.
+ */
+export function joinPrefixes(tokens: Token[]): { token: Token; bare?: Token }[] {
+  const out: { token: Token; bare?: Token }[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    const next = tokens[i + 1];
+    if (t.pos[0] === '接頭辞' && POLITE_PREFIX.has(t.surface) && next && next.pos[0] === '名詞') {
+      out.push({
+        token: {
+          ...next,
+          surface: t.surface + next.surface,
+          dictionaryForm: t.surface + next.dictionaryForm,
+          normalizedForm: t.surface + next.normalizedForm,
+          reading: t.reading + next.reading,
+          dictionaryReading: t.reading + next.dictionaryReading,
+          begin: t.begin,
+        },
+        bare: next,
+      });
+      i++;
+    } else out.push({ token: t });
+  }
+  return out;
+}
+
 export async function mapTokens(
-  tokens: Token[],
+  raw: Token[],
   dictionary: Dictionary,
   catalog: Catalog,
 ): Promise<{ tokens: ContentToken[]; items: Item[] }> {
+  const units = joinPrefixes(raw);
+  const tokens = units.map((u) => u.token);
   const tracked = tokens.map((t, i) => [t, i] as const).filter(([t]) => isTracked(t));
-  const found = await dictionary.lookup(tracked.map(([t]) => ({ lemma: t.dictionaryForm, reading: t.dictionaryReading })));
+  const joined = await dictionary.lookup(tracked.map(([t]) => ({ lemma: t.dictionaryForm, reading: t.dictionaryReading })));
+  // Joined words the dictionary lacks are looked up again as the bare noun.
+  const retry = tracked.map(([, i], k) => (!joined[k] && units[i]!.bare ? k : -1)).filter((k) => k >= 0);
+  const bare = retry.length
+    ? await dictionary.lookup(retry.map((k) => units[tracked[k]![1]]!.bare!).map((b) => ({ lemma: b.dictionaryForm, reading: b.dictionaryReading })))
+    : [];
+  const found = joined.map((e, k) => e ?? bare[retry.indexOf(k)] ?? null);
   const itemAt = new Map<number, Item>();
   const items = new Map<string, Item>();
   tracked.forEach(([, i], k) => {
@@ -244,6 +301,24 @@ function retryNote(check: PassageCheck): string {
   return parts.join(' ') || 'Write a new, simpler version.';
 }
 
+/**
+ * Questions from the model's reply that are well formed: three distinct options and an answer in range. A question
+ * naming one of `words` (the passage's own items) hinges on it; any other is a gist question with no item evidence.
+ */
+export function parseQuestions(raw: unknown, words: Item[]): ContentQuestion[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((q): ContentQuestion[] => {
+    if (!q || typeof q !== 'object') return [];
+    const { question, options, answer, word } = q as Record<string, unknown>;
+    if (typeof question !== 'string' || !question.trim() || !Array.isArray(options)) return [];
+    const opts = options.filter((o): o is string => typeof o === 'string').map((o) => o.trim());
+    if (opts.length !== 3 || new Set(opts).size !== 3 || opts.some((o) => !o)) return [];
+    if (typeof answer !== 'number' || !Number.isInteger(answer) || answer < 0 || answer > 2) return [];
+    const hinge = typeof word === 'string' && word.trim() ? words.find((t) => t.written === word.trim() || t.reading === word.trim()) : undefined;
+    return [{ prompt: question.trim(), options: opts, answer, ...(hinge ? { itemId: hinge.id } : {}) }];
+  }).slice(0, 2);
+}
+
 export interface ReadingPorts {
   llm: Llm;
   tokenizer: Tokenizer;
@@ -276,7 +351,7 @@ export async function writeReading(
     } catch (e) {
       return { status: 'failed', reason: `the model call failed: ${String(e)}`, tries };
     }
-    const out = result.output as { title?: unknown; text?: unknown; translation?: unknown } | null;
+    const out = result.output as { title?: unknown; text?: unknown; translation?: unknown; questions?: unknown } | null;
     if (!out || typeof out.text !== 'string' || typeof out.title !== 'string' || typeof out.translation !== 'string') {
       last = 'the reply was not a passage';
       continue;
@@ -289,17 +364,24 @@ export async function writeReading(
       feedback = retryNote(check);
       continue;
     }
+    // A question may hinge on any word the passage actually uses, listed target or not.
+    const questions = parseQuestions(out.questions, mapped.items);
+    if (questions.length === 0) {
+      last = 'no usable question';
+      feedback = 'The last version had no usable question. Include one or two questions as described, each with three different options.';
+      continue;
+    }
     let review: StoredContent['review'];
     if (cfg.review) {
       let verdict;
       try {
-        verdict = await ports.llm.call('review', reviewRequest(out.title, text, out.translation, opts.sessionId));
+        verdict = await ports.llm.call('review', reviewRequest(out.title, text, out.translation, questions, opts.sessionId));
       } catch (e) {
         return { status: 'failed', reason: `the review call failed: ${String(e)}`, tries };
       }
-      const v = verdict.output as { natural?: unknown; translationMatches?: unknown; problems?: unknown } | null;
+      const v = verdict.output as { natural?: unknown; translationMatches?: unknown; questionsOk?: unknown; problems?: unknown } | null;
       const problems = Array.isArray(v?.problems) ? v!.problems.filter((p): p is string => typeof p === 'string') : [];
-      if (v?.natural !== true || v?.translationMatches !== true) {
+      if (v?.natural !== true || v?.translationMatches !== true || v?.questionsOk !== true) {
         last = `the review found problems: ${problems.join('; ') || 'no details'}`;
         feedback = `A reviewer found problems in the last version: ${problems.join(' ') || 'it was not natural Japanese.'} Write a new passage that avoids them.`;
         continue;
@@ -323,6 +405,7 @@ export async function writeReading(
         items: mapped.items,
         targets: targets.map((t) => t.id),
         coverage: check.coverage,
+        questions,
         ...(review ? { review } : {}),
       },
     };
@@ -338,9 +421,11 @@ export interface LibraryPassage {
   title: string;
   text: string;
   translation: string;
+  /** Questions in the model's reply shape; `word` names the passage word a question hinges on (dictionary form). */
+  questions?: { question: string; options: string[]; answer: number; word: string }[];
 }
 
-export const LIBRARY_PROMPT_VERSION = 'library-1';
+export const LIBRARY_PROMPT_VERSION = 'library-2';
 export const libraryContentId = (p: LibraryPassage) => `library:${p.id}`;
 
 /** How far a passage is from the sweet spot of about two new words: enough to learn from, few enough to read. */
@@ -394,6 +479,7 @@ export async function pickLibraryPassage(
       items: best.mapped.items,
       targets: [],
       coverage: best.check.coverage,
+      questions: parseQuestions(best.p.questions ?? [], best.mapped.items),
     },
   };
 }

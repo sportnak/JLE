@@ -507,7 +507,7 @@ rt {
   line-height: 52px;
 }
 .font-word rt {
-  font-size: 12px;
+  font-size: calc(12px * var(--furigana-scale, 1));
 }
 .font-sentence {
   font-size: 18px;
@@ -623,7 +623,7 @@ rt {
   justify-items: start;
 }
 .dict-sentence ruby rt {
-  font-size: 11px;
+  font-size: calc(11px * var(--furigana-scale, 1));
 }
 .dict-missed {
   background: var(--vermilion-tint);
@@ -675,4 +675,25 @@ rt {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+}
+.reading-recall {
+  margin: 0;
+  line-height: 1.9;
+}
+.question-choices {
+  display: grid;
+  gap: var(--space-2);
+}
+.question-choices .jle-choice {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+/* Furigana without a size of its own: the browser's half size, scaled by Settings → Furigana size. */
+rt:not(.t-furigana) {
+  font-size: calc(50% * var(--furigana-scale, 1));
+}
+.size-sample {
+  margin: 0;
+  line-height: 2.4;
 }

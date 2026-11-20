@@ -103,6 +103,15 @@ export interface ContentToken {
   itemId?: string;
 }
 
+/** A question on a passage. It hinges on one word when `itemId` is set: answering needs that word understood. */
+export interface ContentQuestion {
+  prompt: string;
+  options: string[];
+  /** Index of the right option. */
+  answer: number;
+  itemId?: string;
+}
+
 /**
  * A piece of text the learner reads: generated to a spec or brought by the learner. A stored output: written once,
  * never changed, and read back on replay so the model is never called again.
@@ -126,6 +135,8 @@ export interface StoredContent {
   targets: string[];
   /** Share of tracked words the learner had met when it was written. */
   coverage: number;
+  /** Multiple-choice questions on the passage, asked right after it is read. */
+  questions?: ContentQuestion[];
   /** The second model's verdict, when the passage was reviewed. */
   review?: { model: string; natural: boolean; translationMatches: boolean; problems: string[] };
 }
@@ -170,6 +181,28 @@ export type ActivitySpec =
       contentId: string;
       /** Characters in the passage, for its expected time. */
       chars: number;
+    }
+  | {
+      type: 'transformation';
+      itemId: string;
+      purpose: 'practice';
+      /** The form asked for, as the conjugator labels it ("polite past"). */
+      form: string;
+      /** Accepted answers: the form built from the written word and from its reading. */
+      expected: string[];
+    }
+  | {
+      type: 'comprehension';
+      /** The word the question hinges on, or for a question with no hinge, the passage's first word (no evidence). */
+      itemId: string;
+      purpose: 'practice';
+      contentId: string;
+      question: number;
+      prompt: string;
+      /** Options in the order shown. */
+      options: string[];
+      answer: string;
+      hinge: boolean;
     }
   | {
       type: 'dictation';

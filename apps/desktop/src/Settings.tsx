@@ -2,7 +2,7 @@ import type { Engine } from '@jle/engine';
 import { useEffect, useState } from 'react';
 import { LEARNER_ID } from './App';
 import { apiKeyStatus, clearApiKey, exportLog, inTauri, listVoices, llmUsage, resetLog, setApiKey, speak, voiceInfo, voiceTerms, type RouteUsage, type VoiceInfo, type VoiceOption } from './host';
-import { SpeedChoice } from './Controls';
+import { FuriganaSizeChips, SpeedChoice, TextSizeChips } from './Controls';
 import { FONTS, getFont, getVoice, setFont, setVoice, type FontChoice } from './prefs';
 
 const SAMPLE = 'こんにちは。日本語を勉強しましょう。';
@@ -25,6 +25,7 @@ export function Settings({ engine, onReset, onDemo }: { engine: Engine; onReset:
 
       <VoiceSetting />
       <FontSetting />
+      <SizeSetting />
       <ModelSetting onChange={onReset} />
 
       <div className="setting">
@@ -348,6 +349,44 @@ function ModelSetting({ onChange }: { onChange: () => void }) {
           {calls} model {calls === 1 ? 'call' : 'calls'} so far, about ${cost.toFixed(2)} in total.
         </p>
       )}
+    </div>
+  );
+}
+
+/** Text size for the whole app and furigana size on its own, with a sample that updates as they change. */
+function SizeSetting() {
+  return (
+    <div className="setting stacked">
+      <div>
+        <h2 className="t-heading">Text and furigana size</h2>
+        <p className="t-body jle-muted">Text size scales everything. Furigana size makes the readings over kanji larger on their own.</p>
+      </div>
+      <div className="setting-row">
+        <span className="jle-label">TEXT</span>
+        <TextSizeChips />
+      </div>
+      <div className="setting-row">
+        <span className="jle-label">FURIGANA</span>
+        <FuriganaSizeChips />
+      </div>
+      <p className="t-reading size-sample" lang="ja">
+        <ruby>
+          昨日<rt className="t-furigana">きのう</rt>
+        </ruby>
+        、
+        <ruby>
+          友達<rt className="t-furigana">ともだち</rt>
+        </ruby>
+        と
+        <ruby>
+          映画<rt className="t-furigana">えいが</rt>
+        </ruby>
+        を
+        <ruby>
+          見<rt className="t-furigana">み</rt>
+        </ruby>
+        ました。
+      </p>
     </div>
   );
 }

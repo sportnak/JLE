@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { inTauri, listVoices, speak, type VoiceOption } from './host';
-import { FONTS, SPEEDS, getFont, getSpeed, getVoice, setFont, setSpeed, setVoice, type FontChoice } from './prefs';
+import { FONTS, FURIGANA_SIZES, SPEEDS, TEXT_SIZES, getFont, getFuriganaSize, getSpeed, getTextSize, getVoice, setFont, setFuriganaSize, setSpeed, setTextSize, setVoice, type FontChoice } from './prefs';
 
 export const SAMPLE = 'こんにちは。日本語を勉強しましょう。';
 const DEFAULT_VOICE = 2;
@@ -87,4 +87,37 @@ export function FontChips() {
       ))}
     </div>
   );
+}
+
+function SizeChips({ label, options, initial, apply }: { label: string; options: readonly { value: number; label: string }[]; initial: number; apply: (v: number) => void }) {
+  const [value, set] = useState(initial);
+  return (
+    <div className="jle-row" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          className="jle-btn chip-btn"
+          onClick={() => {
+            apply(o.value);
+            set(o.value);
+          }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Size of everything in the app. Applies at once. */
+export function TextSizeChips() {
+  return <SizeChips label="Text size" options={TEXT_SIZES} initial={getTextSize()} apply={setTextSize} />;
+}
+
+/** Size of the furigana over kanji, relative to the text. Applies at once. */
+export function FuriganaSizeChips() {
+  return <SizeChips label="Furigana size" options={FURIGANA_SIZES} initial={getFuriganaSize()} apply={setFuriganaSize} />;
 }

@@ -6,7 +6,7 @@ import type { LibraryPassage } from '@jle/engine';
  * 4 て-forms, たい and reasons, 5 rounds out N5, 6 reaches toward N4. The engine picks whichever fits the learner best,
  * so level only breaks ties. Plain polite style throughout; no romaji, no furigana (the reader adds it).
  */
-export const LIBRARY: LibraryPassage[] = [
+const PASSAGES: Omit<LibraryPassage, 'questions'>[] = [
   // Level 1
   { id: 'l1-01', level: 1, title: '私の本', text: 'これは私の本です。それは先生の本です。', translation: 'This is my book. That is the teacher’s book.' },
   { id: 'l1-02', level: 1, title: '学生', text: '私は学生です。友達も学生です。先生は日本人です。', translation: 'I am a student. My friend is a student too. The teacher is Japanese.' },
@@ -79,3 +79,72 @@ export const LIBRARY: LibraryPassage[] = [
   { id: 'l6-09', level: 6, title: '遅刻', text: '今朝は寝坊して、会社に遅れてしまいました。これからは目覚まし時計を二つかけようと思います。', translation: 'This morning I overslept and was late for work. From now on I think I will set two alarm clocks.' },
   { id: 'l6-10', level: 6, title: '図書館のルール', text: 'この図書館では、本を二週間借りることができます。でも、辞書は借りられないので、ここで使ってください。', translation: 'At this library you can borrow books for two weeks. But dictionaries can’t be borrowed, so please use them here.' },
 ];
+
+type Q = NonNullable<LibraryPassage['questions']>[number];
+const q = (question: string, options: [string, string, string], answer: number, word: string): Q => ({ question, options, answer, word });
+
+/** One question per passage, each hinging on a word in it (named in dictionary form). */
+const QUESTIONS: Record<string, Q[]> = {
+  'l1-01': [q('Whose book is “that” one?', ['Mine', 'The teacher’s', 'A friend’s'], 1, '先生')],
+  'l1-02': [q('What is the writer?', ['A teacher', 'A student', 'A doctor'], 1, '学生')],
+  'l1-03': [q('What is the thing over there?', ['Water', 'Coffee', 'Tea'], 2, 'お茶')],
+  'l1-04': [q('What is the writer’s name?', ['Tanaka', 'Yamada', 'Suzuki'], 0, '名前')],
+  'l1-05': [q('What does Mr. Yamada do?', ['He is a student', 'He is a teacher', 'He works at a station'], 1, '先生')],
+  'l1-06': [q('What day is tomorrow?', ['Monday', 'Tuesday', 'Sunday'], 1, '明日')],
+  'l1-07': [q('What is “here”?', ['A school', 'A station', 'A house'], 1, '駅')],
+  'l1-08': [q('What is Tama?', ['A dog', 'A cat', 'A friend'], 1, '猫')],
+  'l1-09': [q('Whose money is “that”?', ['The writer’s', 'The mother’s', 'The father’s'], 1, '母')],
+  'l1-10': [q('What is in the cup?', ['Coffee', 'Water', 'Tea'], 2, 'お茶')],
+  'l2-01': [q('What does the writer drink every morning?', ['Tea', 'Coffee', 'Water'], 1, '飲む')],
+  'l2-02': [q('What time does the writer go to bed?', ['Ten', 'Eleven', 'Twelve'], 1, '寝る')],
+  'l2-03': [q('How does the friend travel every day?', ['By car', 'By train', 'On foot'], 1, '電車')],
+  'l2-04': [q('Where does the writer read on Sundays?', ['At school', 'At home', 'At a café'], 1, '家')],
+  'l2-05': [q('Who is the letter for?', ['The writer’s mother', 'A teacher', 'A friend'], 0, '手紙')],
+  'l2-06': [q('What does the writer eat for lunch?', ['Meat and rice', 'Fish and vegetables', 'Bread'], 1, '魚')],
+  'l2-07': [q('How often does the father phone?', ['Every morning', 'Every evening', 'Every Sunday'], 1, '電話')],
+  'l2-08': [q('What does the writer buy at the shop?', ['Bread', 'Tea', 'Books'], 0, '買う')],
+  'l2-09': [q('Where does the dog go every day?', ['To school', 'To the park', 'To the station'], 1, '犬')],
+  'l2-10': [q('In what language does the writer talk with the teacher?', ['English', 'Japanese', 'Chinese'], 1, '日本語')],
+  'l3-01': [q('What was the weather yesterday?', ['Sunny', 'Rainy', 'Snowy'], 1, '雨')],
+  'l3-02': [q('What did the father buy?', ['A new car', 'A new house', 'An old car'], 0, '新しい')],
+  'l3-03': [q('How was this morning?', ['Hot', 'Very cold', 'Rainy'], 1, '寒い')],
+  'l3-04': [q('What was the problem with the restaurant?', ['The food was bad', 'It was expensive', 'It was closed'], 1, '高い')],
+  'l3-05': [q('What is the writer’s town like?', ['Big and busy', 'Small and quiet', 'Old and dirty'], 1, '静か')],
+  'l3-06': [q('What kind of day was today?', ['Busy', 'Boring', 'Relaxed'], 0, '忙しい')],
+  'l3-07': [q('What does the writer say about the old book?', ['It is boring', 'It is very interesting', 'It is expensive'], 1, '古い')],
+  'l3-08': [q('Where did the writer go at the weekend?', ['To the sea', 'To the mountains', 'To a friend’s house'], 1, '山')],
+  'l3-09': [q('Who was in the park?', ['A lot of children', 'A few dogs', 'The teacher'], 0, '子供')],
+  'l3-10': [q('What was difficult?', ['The test', 'Yesterday’s homework', 'The book'], 1, '宿題')],
+  'l4-01': [q('What does the writer do right after getting up?', ['Eat breakfast', 'Wash their face', 'Go to school'], 1, '起きる')],
+  'l4-02': [q('Where does the writer want to see temples?', ['Tokyo', 'Kyoto', 'Osaka'], 1, '見る')],
+  'l4-03': [q('Why should the window be opened?', ['It is hot', 'It is cold', 'It is dark'], 0, '暑い')],
+  'l4-04': [q('What should you do in the library?', ['Talk', 'Be quiet', 'Eat'], 1, '静か')],
+  'l4-05': [q('Why isn’t the writer going out?', ['They are busy', 'It is raining', 'They are sick'], 1, '雨')],
+  'l4-06': [q('Who is on the left in the photo?', ['The older brother', 'The younger sister', 'The mother'], 1, '妹')],
+  'l4-07': [q('Where should you turn?', ['Left at the first corner', 'Right at the second corner', 'Right at the first corner'], 1, '右')],
+  'l4-08': [q('What did the writer buy?', ['Fish and rice', 'Meat and vegetables', 'Bread and milk'], 1, '肉')],
+  'l4-09': [q('When is the party?', ['Friday', 'Saturday', 'Sunday'], 1, '土曜日')],
+  'l4-10': [q('Why is the writer sleepy?', ['They studied until late', 'They worked early', 'They were sick'], 0, '勉強')],
+  'l5-01': [q('Where is the writer’s room?', ['On the first floor', 'On the second floor', 'In the basement'], 1, '部屋')],
+  'l5-02': [q('What did the writer give their mother?', ['A cake', 'Flowers', 'A book'], 1, '花')],
+  'l5-03': [q('Why did the writer go to the hospital?', ['They had a headache', 'They had a cold', 'They hurt their leg'], 0, '頭')],
+  'l5-04': [q('Where did the family go?', ['To the mountains', 'To the sea', 'To Tokyo'], 1, '海')],
+  'l5-05': [q('Where does the writer work part-time?', ['At a café', 'At a school', 'At a station'], 0, '喫茶店')],
+  'l5-06': [q('What is the morning train like?', ['Always crowded', 'Always empty', 'Often late'], 0, '多い')],
+  'l5-07': [q('What happens a lot in the writer’s town in winter?', ['It rains', 'It snows', 'It is windy'], 1, '雪')],
+  'l5-08': [q('What is the teacher like?', ['Strict', 'Kind', 'Quiet'], 1, '優しい')],
+  'l5-09': [q('Where is the post office?', ['Next to the bank', 'Next to the station', 'Behind the school'], 0, '銀行')],
+  'l5-10': [q('What can the writer make?', ['Sushi', 'Curry', 'Cake'], 1, '作る')],
+  'l6-01': [q('Why is the new apartment better?', ['It is bigger', 'It is closer to the station', 'It is cheaper'], 1, '近い')],
+  'l6-02': [q('What did the writer leave on the train?', ['A bag', 'An umbrella', 'A book'], 1, '傘')],
+  'l6-03': [q('What does the writer do every morning now?', ['Swims', 'Walks for thirty minutes', 'Runs for an hour'], 1, '歩く')],
+  'l6-04': [q('What does the writer find hard to memorise?', ['Kanji', 'Grammar', 'Katakana'], 0, '覚える')],
+  'l6-05': [q('When does the writer plan to go to Hokkaido?', ['In the summer', 'In the spring break', 'In winter'], 1, '旅行')],
+  'l6-06': [q('When will it rain tomorrow?', ['In the morning', 'From the afternoon', 'At night only'], 1, '午後')],
+  'l6-07': [q('What instrument does the writer learn?', ['Guitar', 'Piano', 'Violin'], 1, '習う')],
+  'l6-08': [q('What did the writer bring as a gift?', ['Flowers', 'A cake', 'Wine'], 1, '持つ')],
+  'l6-09': [q('Why was the writer late?', ['The train was late', 'They overslept', 'They were sick'], 1, '寝坊')],
+  'l6-10': [q('What can’t be borrowed?', ['Books', 'Dictionaries', 'Magazines'], 1, '辞書')],
+};
+
+export const LIBRARY: LibraryPassage[] = PASSAGES.map((p) => ({ ...p, ...(QUESTIONS[p.id] ? { questions: QUESTIONS[p.id] } : {}) }));

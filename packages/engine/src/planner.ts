@@ -20,8 +20,12 @@ function sessionHistory(acts: ActivityRecord[]): Map<string, ActivityRecord[]> {
   return byItem;
 }
 
-/** An activity with an answer. A passage is read, not answered, so it is neither right nor wrong. */
-const attempt = (a: ActivityRecord) => a.spec.type !== 'introduce' && a.spec.type !== 'reading';
+/**
+ * An activity whose answer says something about its item. A passage is read, not answered, and a question with no
+ * hinge word checks the gist, not its stand-in item, so neither is right or wrong for the item.
+ */
+const attempt = (a: ActivityRecord) =>
+  a.spec.type !== 'introduce' && a.spec.type !== 'reading' && !(a.spec.type === 'comprehension' && !a.spec.hinge);
 const missed = (a: ActivityRecord) => attempt(a) && (a.outcome === 'wrong' || a.outcome === 'dont_know');
 const right = (a: ActivityRecord) => attempt(a) && (a.outcome === 'correct' || a.outcome === 'self_corrected');
 const skillOf = (a: ActivityRecord) => typeOf(a.spec).skillOf(a.spec);
@@ -181,7 +185,7 @@ export function strandMinutesSince(model: LearnerModel, since: Date): Record<Str
  */
 export function sessionBudget(model: LearnerModel, acts: ActivityRecord[], now: Date, newSoFar: number): number {
   const recent = acts
-    .filter((a) => a.spec.type !== 'introduce' && a.spec.type !== 'reading' && a.spec.purpose !== 'placement' && a.outcome && a.outcome !== 'skip')
+    .filter((a) => attempt(a) && a.spec.type !== 'introduce' && a.spec.purpose !== 'placement' && a.outcome && a.outcome !== 'skip')
     .slice(-8);
   if (recent.length >= 5) {
     const accuracy = recent.filter(right).length / recent.length;

@@ -7,7 +7,7 @@ export { grade, gradeDictation, gradeMinimalPair, normalizeEnglish, normalizeRea
 export { derive, LearnerModel } from './learner';
 export { planCandidates, currentStage } from './planner';
 export { stageFor, strandTargets, strandPull, overClosedCap, STRANDS } from './stage';
-export { REGISTRY, activityTypes, typeOf, eligiblePairs, readyForDictation } from './activities';
+export { REGISTRY, activityTypes, typeOf, eligiblePairs, readyForDictation, transformationSpec } from './activities';
 export type { ActivityType, Candidate, GradeContext, Need, PlanContext } from './activities';
 export { inflections, type Pos } from './conjugate';
 export {
@@ -21,6 +21,7 @@ export {
   writeReading,
   pickLibraryPassage,
   reviewRequest,
+  parseQuestions,
   libraryContentId,
   type LibraryPassage,
   type ReadingOutcome,

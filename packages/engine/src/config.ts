@@ -16,6 +16,10 @@ export interface EngineConfig {
     lookup: number;
     /** Reading past a word already met without looking it up: weak recognition evidence. */
     readPast: number;
+    /** A question on a passage that hinges on a word, answered right or wrong. */
+    comprehension: number;
+    /** Producing a form of a word: mostly a grammar check, so it weighs on the word lightly. */
+    transformation: number;
   };
   modifiers: {
     supportDiscount: number;
@@ -52,7 +56,7 @@ export interface EngineConfig {
     confirmAfterDays: number;
   };
   timing: {
-    baseSeconds: Record<'introduce' | 'kana_to_reading' | 'ja_to_en' | 'en_to_ja' | 'minimal_pair' | 'dictation' | 'reading', number>;
+    baseSeconds: Record<'introduce' | 'kana_to_reading' | 'ja_to_en' | 'en_to_ja' | 'minimal_pair' | 'dictation' | 'reading' | 'comprehension' | 'transformation', number>;
     perCharSeconds: number;
     /** Reading is faster per character than typing an answer. */
     readingPerCharSeconds: number;
@@ -110,6 +114,8 @@ export const DEFAULT_CONFIG: EngineConfig = {
     dictationItem: 0.5,
     lookup: 0.3,
     readPast: 0.2,
+    comprehension: 0.4,
+    transformation: 0.4,
   },
   modifiers: {
     supportDiscount: 0.6,
@@ -146,7 +152,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
     confirmAfterDays: 1,
   },
   timing: {
-    baseSeconds: { introduce: 6, kana_to_reading: 4, ja_to_en: 6, en_to_ja: 7, minimal_pair: 5, dictation: 8, reading: 15 },
+    baseSeconds: { introduce: 6, kana_to_reading: 4, ja_to_en: 6, en_to_ja: 7, minimal_pair: 5, dictation: 8, reading: 15, comprehension: 10, transformation: 9 },
     perCharSeconds: 1,
     readingPerCharSeconds: 0.4,
   },

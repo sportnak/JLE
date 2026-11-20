@@ -56,3 +56,42 @@ export function getSpeed(): number {
 export function setSpeed(value: number) {
   write('jle.speed', String(value));
 }
+
+/** Text size scales the whole app (page zoom), so layout grows with the text. */
+export const TEXT_SIZES = [
+  { value: 0.9, label: 'Small' },
+  { value: 1, label: 'Normal' },
+  { value: 1.15, label: 'Large' },
+  { value: 1.3, label: 'Larger' },
+  { value: 1.5, label: 'Largest' },
+] as const;
+
+/** Furigana size, relative to its normal size, on top of the text size. */
+export const FURIGANA_SIZES = [
+  { value: 1, label: 'Normal' },
+  { value: 1.25, label: 'Large' },
+  { value: 1.5, label: 'Larger' },
+  { value: 1.8, label: 'Largest' },
+] as const;
+
+const scale = (key: string, allowed: readonly { value: number }[], fallback: number) => {
+  const v = Number(read(key));
+  return allowed.some((a) => a.value === v) ? v : fallback;
+};
+
+export const getTextSize = () => scale('jle.textSize', TEXT_SIZES, 1);
+export const getFuriganaSize = () => scale('jle.furiganaSize', FURIGANA_SIZES, 1);
+
+export function setTextSize(value: number) {
+  write('jle.textSize', String(value));
+  applyDisplay();
+}
+export function setFuriganaSize(value: number) {
+  write('jle.furiganaSize', String(value));
+  applyDisplay();
+}
+export function applyDisplay() {
+  const root = document.documentElement;
+  root.style.setProperty('zoom', String(getTextSize()));
+  root.style.setProperty('--furigana-scale', String(getFuriganaSize()));
+}

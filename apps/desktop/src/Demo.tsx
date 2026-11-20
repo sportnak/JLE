@@ -1,4 +1,4 @@
-import { Engine, MemoryEventStore, type ActivitySpec, type ActivityView, type Catalog, type ContentToken, type Item, type StoredContent } from '@jle/engine';
+import { Engine, MemoryEventStore, transformationSpec, type ActivitySpec, type ActivityView, type Catalog, type ContentToken, type Item, type StoredContent } from '@jle/engine';
 import { useRef, useState } from 'react';
 import { RENDERERS } from './SessionView';
 
@@ -50,6 +50,14 @@ function sampleContent(catalog: Catalog): StoredContent {
     items,
     targets: items.slice(0, 1).map((i) => i.id),
     coverage: 1,
+    questions: [
+      {
+        prompt: 'What does the writer drink every day?',
+        options: ['Tea', 'Coffee', 'Water'],
+        answer: 1,
+        ...(items.find((i) => i.written === 'コーヒー') ? { itemId: items.find((i) => i.written === 'コーヒー')!.id } : {}),
+      },
+    ],
   };
 }
 
@@ -132,6 +140,37 @@ const DEMOS: Demo[] = [
     },
   },
   {
+    key: 'comprehension',
+    title: 'Question on a passage',
+    about: 'After a passage, a question whose answer turns on one word in it. In lessons it comes straight after reading.',
+    spec: (c) => {
+      const content = sampleContent(c);
+      const q = content.questions![0]!;
+      return {
+        type: 'comprehension',
+        itemId: q.itemId ?? content.targets[0]!,
+        purpose: 'practice',
+        contentId: content.id,
+        question: 0,
+        prompt: q.prompt,
+        options: q.options,
+        answer: q.options[q.answer]!,
+        hinge: !!q.itemId,
+      };
+    },
+  },
+  {
+    key: 'transformation',
+    title: 'Make a form',
+    about: 'Turn a word you know into another form: polite past, negative, て-form. Checked by the conjugator. From 300 known words.',
+    spec: (c, run) => {
+      const words = vocab(c).filter((w) => w.pos);
+      const w = pick(words, run * 3);
+      const forms = ['polite past', 'negative form', 'て-form', 'polite negative', 'past form'];
+      return w ? (transformationSpec(w, forms[run % forms.length]!) ?? transformationSpec(w, 'polite form')) : null;
+    },
+  },
+  {
     key: 'dictation',
     title: 'Write what you hear',
     about: 'A short sentence of words you know is played; type it in kana.',
@@ -165,7 +204,7 @@ export function ActivityDemo({ catalog, examples, onBack }: { catalog: Catalog; 
       runs.current.set(d.key, run + 1);
       const spec = d.spec(catalog, run);
       if (!spec) return setError(`Nothing in the catalog to show "${d.title}" with.`);
-      if (spec.type === 'reading') demo.current.engine.adoptContent(sampleContent(catalog));
+      if (spec.type === 'reading' || spec.type === 'comprehension') demo.current.engine.adoptContent(sampleContent(catalog));
       setOpen({ title: d.title, activity: await demo.current.engine.startActivity(demo.current.sessionId, spec, 'demo') });
     } catch (e) {
       setError(String(e));
