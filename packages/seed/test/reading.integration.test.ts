@@ -7,6 +7,8 @@ import {
   checkPassage,
   mapTokens,
   parseQuestions,
+  splitText,
+  sentencesOf,
   type Dictionary,
   type DictionaryEntry,
   type EngineConfig,
@@ -77,11 +79,22 @@ const TOKENS: Record<string, Token[]> = {
   ]),
 };
 
+/** Fixture tokens for a fixture passage, or for several fixture passages run together. */
 const tokenizer: Tokenizer = {
   analyze: async (text) => {
-    const t = TOKENS[text];
-    if (!t) throw new Error(`no fixture tokens for ${text}`);
-    return t;
+    if (TOKENS[text]) return TOKENS[text]!;
+    // Plain English: one token the dictionary will not know, as Sudachi would give an unknown word.
+    if (/^[\x00-\x7f]+$/.test(text)) return tokens([[text, text, '', '', '名詞']]);
+    const out: Token[] = [];
+    let rest = text;
+    while (rest) {
+      const known = Object.keys(TOKENS).find((k) => rest.startsWith(k));
+      if (!known) throw new Error(`no fixture tokens for ${rest}`);
+      const at = [...text].length - [...rest].length;
+      out.push(...TOKENS[known]!.map((t) => ({ ...t, begin: t.begin + at, end: t.end + at })));
+      rest = rest.slice(known.length);
+    }
+    return out;
   },
 };
 
@@ -604,4 +617,113 @@ describe('polite prefixes', () => {
     const mapped = await mapTokens(split('茶', 'ちゃ'), only, catalog);
     expect(mapped.tokens[0]).toMatchObject({ surface: 'お茶', itemId: 'jmdict:1427220' });
   });
+});
+
+describe('your own text', () => {
+  it('splits at sentence ends into parts of about the given size', () => {
+    expect(splitText('一つ目。二つ目。三つ目。', 8)).toEqual(['一つ目。二つ目。', '三つ目。']);
+    expect(splitText('とても長い一つの文です。', 4)).toEqual(['とても長い一つの文です。']);
+    expect(splitText('一行目\n\n二行目', 100)).toEqual(['一行目二行目']);
+    expect(splitText('一行目\n\n二行目', 3)).toEqual(['一行目', '二行目']);
+  });
+
+  it('is stored in parts and read in order in one lesson, ahead of other passages', async () => {
+    const lib: LibraryPassage[] = [{ id: 'easy', level: 1, title: '朝', text: EASY, translation: '…' }];
+    const { engine, clock, contents } = await learner([], 25, EASY_WORDS, config, { model: false, library: lib });
+    const long = Array.from({ length: 12 }, () => EASY).join('');
+    const added = await engine.addOwnText('コーヒーの話', long);
+    expect(added.parts).toBeGreaterThan(1);
+    expect(added.coverage).toBe(1);
+    const own = contents.contents.filter((c) => c.source === 'learner');
+    expect(own.map((c) => c.series!.part)).toEqual(own.map((_, i) => i + 1));
+    expect(own[0]!.title).toBe(`コーヒーの話 (1/${added.parts})`);
+    // Your text waits, so no library passage is prepared while it does.
+    expect((await engine.prepareReading()).status).toBe('skipped');
+    const { sessionId } = await session(engine, clock);
+    const read = engine.learner.sessions.get(sessionId)!.activityIds
+      .map((id) => engine.learner.activities.get(id)!)
+      .flatMap((a) => (a.spec.type === 'reading' ? [engine.content(a.spec.contentId)!.series?.part] : []));
+    expect(read).toEqual(own.map((c) => c.series!.part).slice(0, read.length));
+    expect(read.length).toBeGreaterThan(1);
+  });
+
+  it('a text with no Japanese words is refused', async () => {
+    const { engine, contents } = await learner([], 25, EASY_WORDS, config, { model: false });
+    await expect(engine.addOwnText('x', 'Just English here.')).rejects.toThrow('No Japanese words');
+    expect(contents.contents).toHaveLength(0);
+  });
+});
+
+describe('highlighting and kept sentences', () => {
+  async function readOnce(engine: Engine, contentId: string) {
+    const { sessionId } = await engine.startSession(5);
+    const c = engine.content(contentId)!;
+    const v = await engine.startActivity(sessionId, { type: 'reading', itemId: c.tokens.find((t) => t.itemId)!.itemId!, purpose: 'practice', contentId, chars: [...c.text].length });
+    await engine.finishReading(v.activityId, 10_000);
+    await engine.completeActivity(v.activityId);
+  }
+
+  it('a word is highlighted until it has been read in three passages', async () => {
+    const { engine, contents } = await learner([EASY]);
+    await engine.prepareReading();
+    const id = contents.contents[0]!.id;
+    const drink = word('飲む').id;
+    const fresh = await learner([EASY], 25, ['毎日', 'コーヒー'], { ...config, reading: { ...config.reading, coverage: 0.5 } });
+    await fresh.engine.prepareReading();
+    const fid = fresh.contents.contents[0]!.id;
+    expect(fresh.engine.highlighted(drink)).toBe(true);
+    for (let k = 0; k < 3; k++) await readOnce(fresh.engine, fid);
+    expect(fresh.engine.learner.meetings.get(drink)).toBe(3);
+    expect(fresh.engine.highlighted(drink)).toBe(false);
+    expect(id).toBeTruthy();
+  });
+
+  it('sentences split after 。, and keeping one survives replay; removing it too', async () => {
+    const { engine, contents, make } = await learner([EASY]);
+    await engine.prepareReading();
+    const c = contents.contents[0]!;
+    const [s] = sentencesOf(c);
+    expect(s).toMatchObject({ begin: 0, end: [...EASY].length, text: EASY });
+    await engine.keepSentence(c.id, s!.begin, s!.end);
+    await engine.keepSentence(c.id, s!.begin, s!.end); // a second keep is not logged
+    expect(engine.learner.kept.size).toBe(1);
+    expect((await make(null)).learner.kept.size).toBe(1);
+    await engine.unkeepSentence(c.id, s!.begin);
+    expect(engine.learner.kept.size).toBe(0);
+    expect((await make(null)).learner.kept.size).toBe(0);
+  });
+
+  it('a word due for production in a kept sentence comes back as a gap in that sentence', async () => {
+    const { engine, clock, contents } = await learner([EASY]);
+    await engine.prepareReading();
+    const c = contents.contents[0]!;
+    const [s] = sentencesOf(c);
+    await engine.keepSentence(c.id, s!.begin, s!.end);
+    const drink = word('飲む');
+    // Miss 飲む in Japanese: practising it again later this lesson is a production need.
+    const { sessionId } = await engine.startSession(15);
+    const miss = await engine.startActivity(sessionId, { type: 'retrieval', itemId: drink.id, cue: 'en_to_ja', purpose: 'practice', showFurigana: false });
+    await engine.recordInteraction(miss.activityId, { kind: 'answer', text: 'たべる', latencyMs: 3000 });
+    await engine.completeActivity(miss.activityId);
+    let next = await engine.nextActivity(sessionId);
+    let gap;
+    for (let g = 0; !next.done && g < 40 && !gap; g++) {
+      const v = next.activity;
+      if (v.spec.type === 'cloze' && v.spec.itemId === drink.id) gap = v;
+      else {
+        if (v.spec.type === 'retrieval') await engine.recordInteraction(v.activityId, { kind: 'answer', text: v.spec.cue === 'ja_to_en' ? v.item.gloss[0]! : v.item.reading, latencyMs: 2000 });
+        if (v.spec.type === 'reading') await engine.finishReading(v.activityId, 1000);
+        clock.advance(8000);
+        await engine.completeActivity(v.activityId);
+        next = await engine.nextActivity(sessionId);
+      }
+    }
+    expect(gap?.spec.type).toBe('cloze');
+    const spec = gap!.spec as Extract<typeof gap.spec, { type: 'cloze' }>;
+    expect(spec.answers).toEqual(['飲み', 'のみ']);
+    expect([...spec.sentence].slice(spec.blankBegin, spec.blankEnd).join('')).toBe('飲み');
+    expect((await engine.recordInteraction(gap!.activityId, { kind: 'answer', text: 'のみ', latencyMs: 3000 })).kind).toBe('correct');
+    expect(engine.learner.activities.get(gap!.activityId)!.evidence[0]).toMatchObject({ skill: 'write', direction: 'positive' });
+  });
+
 });

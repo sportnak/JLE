@@ -23,9 +23,21 @@ export const reading: ActivityType<Spec> = {
   skillOf: () => 'read',
 
   candidates(ctx) {
-    if (ctx.sessionActs.some((a) => a.spec.type === 'reading')) return [];
+    // One passage a lesson, except that a text the learner brought continues part after part while time allows.
+    const lastHere = ctx.sessionActs.findLast((a) => a.spec.type === 'reading');
+    const lastContent = lastHere?.spec.type === 'reading' ? ctx.model.contents.get(lastHere.spec.contentId) : undefined;
+    const unread = ctx.model.unreadContent();
+    if (lastHere) {
+      const series = lastContent?.series;
+      const nextPart = series && unread.find((c) => c.series?.id === series.id && c.series.part === series.part + 1);
+      if (!nextPart || !lastHere.outcome) return [];
+      const itemId = nextPart.tokens.find((t) => t.itemId && ctx.model.item(t.itemId))?.itemId;
+      return itemId
+        ? [{ spec: { type: 'reading', itemId, purpose: 'practice', contentId: nextPart.id, chars: [...nextPart.text].length }, score: READING_SCORE, reason: 'the next part of your text', order: ctx.needs.length }]
+        : [];
+    }
     // A new passage first; otherwise one read long enough ago to read again (rereading builds fluency).
-    const fresh = ctx.model.unreadContent()[0];
+    const fresh = unread[0];
     const lastRead = new Map<string, number>();
     for (const a of ctx.model.activities.values()) {
       if (a.spec.type !== 'reading' || !a.outcome) continue;

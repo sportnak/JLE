@@ -26,3 +26,5 @@ export {
   type LibraryPassage,
   type ReadingOutcome,
 } from './content/reading';
+export { splitText, ownTextContent } from './content/ownText';
+export { sentencesOf, type KeptSentence, type Sentence } from './content/sentences';

@@ -135,6 +135,8 @@ export interface StoredContent {
   targets: string[];
   /** Share of tracked words the learner had met when it was written. */
   coverage: number;
+  /** Part of a longer text the learner brought, read in order. */
+  series?: { id: string; part: number; of: number };
   /** Multiple-choice questions on the passage, asked right after it is read. */
   questions?: ContentQuestion[];
   /** The second model's verdict, when the passage was reviewed. */
@@ -192,6 +194,18 @@ export type ActivitySpec =
       expected: string[];
     }
   | {
+      type: 'cloze';
+      itemId: string;
+      purpose: Exclude<Purpose, 'first_listen'>;
+      contentId: string;
+      /** The kept sentence, and where the blank is in it (character offsets). */
+      sentence: string;
+      blankBegin: number;
+      blankEnd: number;
+      /** The word as it stands in the sentence, written and in kana. */
+      answers: string[];
+    }
+  | {
       type: 'comprehension';
       /** The word the question hinges on, or for a question with no hinge, the passage's first word (no evidence). */
       itemId: string;
@@ -238,6 +252,8 @@ export type InteractionEvent = Base &
     | { kind: 'flag'; activityId: string; reason: string }
     | { kind: 'lookup'; activityId: string; itemId: string; tokenIndex: number }
     | { kind: 'reading_done'; activityId: string; latencyMs: number }
+    | { kind: 'keep_sentence'; contentId: string; begin: number; end: number }
+    | { kind: 'unkeep_sentence'; contentId: string; begin: number }
   );
 
 export type InteractionKind = InteractionEvent['kind'];

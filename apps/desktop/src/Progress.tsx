@@ -108,6 +108,8 @@ export function Progress({ engine, onChange }: { engine: Engine; onChange: () =>
         )}
       </div>
 
+      <KeptSentences engine={engine} onChange={onChange} />
+
       <details className="all-items">
         <summary className="t-heading">Every item</summary>
         <ItemTable engine={engine} state={state} onChange={onChange} />
@@ -259,5 +261,34 @@ function GroupPicker({ placement, cluster, onPick }: { placement: GroupRow[]; cl
         ];
       })}
     </div>
+  );
+}
+
+/** Sentences kept from passages, newest first, each removable. They are the cloze cues for their words. */
+function KeptSentences({ engine, onChange }: { engine: Engine; onChange: () => void }) {
+  const kept = [...engine.learner.kept.values()].sort((a, b) => b.at.localeCompare(a.at));
+  if (kept.length === 0) return null;
+  return (
+    <details className="all-items">
+      <summary className="t-heading">Kept sentences ({kept.length})</summary>
+      <ul className="keep-list">
+        {kept.map((k) => (
+          <li key={`${k.contentId}:${k.begin}`} className="keep-row">
+            <span className="t-body" lang="ja">
+              {k.text}
+            </span>
+            <button
+              className="link-btn"
+              onClick={async () => {
+                await engine.unkeepSentence(k.contentId, k.begin);
+                onChange();
+              }}
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

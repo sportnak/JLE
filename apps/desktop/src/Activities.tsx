@@ -1,4 +1,4 @@
-import { gradeDictation, type ActivitySpec, type ActivityView, type Engine, type Feedback, type MinimalPair, type Segment } from '@jle/engine';
+import { gradeDictation, sentencesOf, type ActivitySpec, type ActivityView, type Engine, type Feedback, type MinimalPair, type Segment } from '@jle/engine';
 import { useEffect, useRef, useState } from 'react';
 import { toKana } from 'wanakana';
 import { useEnter } from './hooks';
@@ -397,7 +397,7 @@ export function ReadingPrompt({ engine, activity, onNext }: ActivityProps) {
             <button
               key={i}
               type="button"
-              className={`reading-word ${looked.has(i) ? 'looked' : ''} ${open === i ? 'open' : ''}`}
+              className={`reading-word ${looked.has(i) ? 'looked' : ''} ${open === i ? 'open' : ''} ${!done && engine.highlighted(t.itemId) ? 'fresh' : ''}`}
               aria-expanded={open === i}
               onClick={() => void tap(i)}
             >
@@ -425,22 +425,30 @@ export function ReadingPrompt({ engine, activity, onNext }: ActivityProps) {
       </div>
       {!done ? (
         <>
-          <p className="t-body-sm jle-muted">Tap any word you don't know. When you've read it, press Done.</p>
+          <p className="t-body-sm jle-muted">Words you are still meeting for the first times are marked. Tap any word you don't know; press Done when you've read it.</p>
           <button className="jle-btn jle-btn-primary wide-btn" onClick={() => void finish()}>
             Done
           </button>
         </>
       ) : (
         <>
-          <div className="jle-note jle-note-good" role="status">
-            <b>In English.</b>
-            <span>{content.translation}</span>
-          </div>
+          {content.translation ? (
+            <div className="jle-note jle-note-good" role="status">
+              <b>In English.</b>
+              <span>{content.translation}</span>
+            </div>
+          ) : (
+            <div className="jle-note jle-note-good" role="status">
+              <b>Read.</b>
+              <span>{content.series && content.series.part < content.series.of ? 'The next part follows.' : 'That was the whole text.'}</span>
+            </div>
+          )}
           {looked.size > 0 && (
             <p className="t-body-sm jle-muted">
               The words you looked up will be taught in a coming lesson.
             </p>
           )}
+          <KeepSentences engine={engine} contentId={content.id} />
           <NextButton onNext={onNext} />
           <Flag engine={engine} activityId={activity.activityId} onNext={onNext} />
         </>
@@ -619,6 +627,142 @@ export function TransformationPrompt({ engine, activity, onNext }: ActivityProps
               </button>
             </div>
           )}
+          <NextButton onNext={onNext} />
+          <Flag engine={engine} activityId={activity.activityId} onNext={onNext} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** After reading: keep any sentence. A kept sentence comes back as a fill-in-the-blank cue for its words. */
+function KeepSentences({ engine, contentId }: { engine: Engine; contentId: string }) {
+  const content = engine.content(contentId);
+  const [, bump] = useState(0);
+  if (!content) return null;
+  const sentences = sentencesOf(content).filter((s) => s.tokens.some((t) => t.itemId));
+  if (sentences.length === 0) return null;
+  const toggle = async (begin: number, end: number) => {
+    if (engine.learner.kept.has(`${contentId}:${begin}`)) await engine.unkeepSentence(contentId, begin);
+    else await engine.keepSentence(contentId, begin, end);
+    bump((n) => n + 1);
+  };
+  return (
+    <div className="keep-sentences">
+      <span className="jle-label">KEEP A SENTENCE</span>
+      <p className="t-body-sm jle-muted">Kept sentences come back later with a word blanked out.</p>
+      <ul className="keep-list">
+        {sentences.map((s) => {
+          const kept = engine.learner.kept.has(`${contentId}:${s.begin}`);
+          return (
+            <li key={s.begin} className="keep-row">
+              <span className="t-body" lang="ja">
+                {s.text}
+              </span>
+              <button className={`jle-btn chip-btn ${kept ? 'on' : ''}`} aria-pressed={kept} onClick={() => void toggle(s.begin, s.end)}>
+                {kept ? 'Kept' : 'Keep'}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+type ClozeSpec = Extract<ActivitySpec, { type: 'cloze' }>;
+
+/** A kept sentence with one word blanked: type the word as it stands in the sentence. */
+export function ClozePrompt({ engine, activity, onNext }: ActivityProps) {
+  const spec = activity.spec as ClozeSpec;
+  const chars = [...spec.sentence];
+  const before = chars.slice(0, spec.blankBegin).join('');
+  const missing = chars.slice(spec.blankBegin, spec.blankEnd).join('');
+  const after = chars.slice(spec.blankEnd).join('');
+  const [text, setText] = useState('');
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [busy, setBusy] = useState(false);
+  const shownAt = useRef(performance.now());
+  const input = useRef<HTMLInputElement>(null);
+  useEnter(feedback ? onNext : null);
+  useEffect(() => input.current?.focus(), []);
+
+  const send = async (kind: 'answer' | 'dont_know' | 'skip' | 'dispute') => {
+    if (busy) return;
+    setBusy(true);
+    const latencyMs = Math.round(performance.now() - shownAt.current);
+    const fb = await engine.recordInteraction(
+      activity.activityId,
+      kind === 'answer' ? { kind, text, latencyMs } : kind === 'dont_know' ? { kind, latencyMs } : { kind },
+    );
+    setBusy(false);
+    if (kind === 'skip') return onNext();
+    if (kind === 'dispute') return setFeedback({ kind: 'correct', expected: missing, note: 'Counted as right.' });
+    if (fb.kind !== 'correct') void speak(spec.sentence);
+    setFeedback(fb);
+  };
+  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const composing = (e.nativeEvent as InputEvent).isComposing;
+    setText(composing ? e.target.value : toKana(e.target.value, { IMEMode: true }));
+  };
+
+  return (
+    <div className="jle-stack">
+      <span className="jle-label">FILL THE GAP</span>
+      <p className="t-reading cloze-sentence" lang="ja">
+        {before}
+        <span className={`cloze-gap ${feedback ? 'filled' : ''}`}>{feedback ? missing : '＿＿'}</span>
+        {after}
+      </p>
+      <p className="t-body-sm jle-muted">{activity.item.gloss.slice(0, 2).join('; ')}</p>
+      {!feedback && (
+        <form
+          className="jle-stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim()) void send('answer');
+          }}
+        >
+          <input
+            ref={input}
+            className="jle-input"
+            value={text}
+            onChange={onChange}
+            lang="ja"
+            aria-label="The missing word"
+            placeholder="Type the missing word"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+          />
+          <div className="answer-actions">
+            <button type="submit" className="jle-btn jle-btn-primary" disabled={!text.trim() || busy}>
+              Check
+            </button>
+            <button type="button" className="jle-btn jle-btn-dk" onClick={() => void send('dont_know')} disabled={busy}>
+              I don't know
+            </button>
+          </div>
+          <button type="button" className="link-btn skip" onClick={() => void send('skip')} disabled={busy}>
+            Skip
+          </button>
+        </form>
+      )}
+      {feedback && (
+        <>
+          <div className={`jle-note ${feedback.kind === 'correct' ? 'jle-note-good' : feedback.kind === 'revealed' ? 'jle-note-neutral' : 'jle-note-bad'}`} role="status">
+            <b>{feedback.kind === 'correct' ? 'Yes.' : feedback.kind === 'revealed' ? 'Noted.' : 'Not quite.'}</b>
+            <span lang="ja">{spec.answers.join(' / ')}</span>
+          </div>
+          <div className="jle-row">
+            <PlayButton text={spec.sentence} label="Play the sentence" />
+            {feedback.kind === 'incorrect' && feedback.canDispute && (
+              <button className="jle-btn" onClick={() => void send('dispute')}>
+                Count it as right
+              </button>
+            )}
+          </div>
           <NextButton onNext={onNext} />
           <Flag engine={engine} activityId={activity.activityId} onNext={onNext} />
         </>

@@ -2,6 +2,7 @@ import { typeOf } from './activities';
 import type { AttemptEvent, GradeContext } from './activities/types';
 import type { EngineConfig } from './config';
 import { applyEvidence, emptyState, pKnownOf, type Scheduler } from './model';
+import { sentencesOf, type KeptSentence } from './content/sentences';
 import { computePlacement, priorFor, type ClusterPlacement } from './placement';
 import type {
   ActivitySpec,
@@ -75,6 +76,10 @@ export class LearnerModel {
   readonly evidence: EvidenceEvent[] = [];
   /** Stored content by id: passages to read. */
   readonly contents = new Map<string, StoredContent>();
+  /** Sentences kept from passages (sentence mining), by `contentId:begin`. Used as cloze cues for their words. */
+  readonly kept = new Map<string, KeptSentence>();
+  /** Passages each word has been read in, for input highlighting (architecture §4.7). */
+  readonly meetings = new Map<string, number>();
   /** Words looked up while reading and not yet taught, with when they were first looked up. */
   readonly wanted = new Map<string, string>();
   utcOffsetMinutes = 0;
@@ -99,10 +104,18 @@ export class LearnerModel {
     this.contents.set(c.id, c);
   }
 
-  /** Content not yet read in any activity, oldest first. */
+  /** Kept sentences holding a word, newest first. */
+  keptWith(itemId: string): KeptSentence[] {
+    return [...this.kept.values()].filter((k) => k.tokens.some((t) => t.itemId && this.catalog.resolve(t.itemId) === itemId)).sort((a, b) => b.at.localeCompare(a.at));
+  }
+
+  /** Content not yet read in any activity: the learner's own text first, then oldest first, parts in order. */
   unreadContent(): StoredContent[] {
     const read = new Set([...this.activities.values()].flatMap((a) => (a.spec.type === 'reading' ? [a.spec.contentId] : [])));
-    return [...this.contents.values()].filter((c) => !read.has(c.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const own = (c: StoredContent) => (c.source === 'learner' ? 0 : 1);
+    return [...this.contents.values()]
+      .filter((c) => !read.has(c.id))
+      .sort((a, b) => own(a) - own(b) || a.createdAt.localeCompare(b.createdAt) || (a.series?.part ?? 0) - (b.series?.part ?? 0));
   }
 
   state(itemId: string, skill: Skill): ItemSkillState {
@@ -189,6 +202,15 @@ export class LearnerModel {
       case 'reading_done':
         this.onReadingDone(e);
         return { kind: 'none' };
+      case 'keep_sentence': {
+        const content = this.contents.get(e.contentId);
+        const s = content && sentencesOf(content).find((x) => x.begin === e.begin && x.end === e.end);
+        if (s) this.kept.set(`${e.contentId}:${e.begin}`, { ...s, contentId: e.contentId, at: e.at });
+        return { kind: 'none' };
+      }
+      case 'unkeep_sentence':
+        this.kept.delete(`${e.contentId}:${e.begin}`);
+        return { kind: 'none' };
     }
   }
 
@@ -219,6 +241,7 @@ export class LearnerModel {
     if (!content) return;
     const looked = new Set(a.evidence.map((ev) => ev.itemId));
     const ids = [...new Set(content.tokens.flatMap((t) => (t.itemId ? [this.catalog.resolve(t.itemId)] : [])))];
+    for (const id of ids) this.meetings.set(id, (this.meetings.get(id) ?? 0) + 1);
     for (const id of ids) {
       const item = this.catalog.item(id);
       if (!item || looked.has(id)) continue;

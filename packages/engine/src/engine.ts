@@ -5,6 +5,7 @@ import { typeOf } from './activities';
 import { currentStage, frontierItems, planCandidates, strandMinutesSince } from './planner';
 import { asHiragana, grade } from './grading';
 import { randomIds, systemClock, type Clock, type ContentStore, type Dictionary, type EventStore, type Ids, type Llm, type Tokenizer } from './ports';
+import { ownTextContent } from './content/ownText';
 import { pickLibraryPassage, writeReading, type LibraryPassage, type ReadingOutcome } from './content/reading';
 import type {
   ActivitySpec,
@@ -257,11 +258,61 @@ export class Engine {
     return this.preparing;
   }
 
+  /**
+   * A text the learner brought: split into passages, mapped, stored, and read in coming lessons ahead of other
+   * passages. Returns the parts and the share of their words already met.
+   */
+  async addOwnText(title: string, text: string): Promise<{ parts: number; coverage: number }> {
+    const { tokenizer, dictionary, contents } = this.opts;
+    if (!tokenizer || !dictionary || !contents) throw new Error('Reading your own text needs the desktop app.');
+    if (!text.trim()) throw new Error('The text is empty.');
+    const parts = await ownTextContent({ tokenizer, dictionary }, this.model, { title: title.trim() || 'My text', text }, {
+      learnerId: this.opts.learnerId,
+      now: this.clock.now(),
+      ids: this.ids,
+    });
+    for (const c of parts) {
+      await contents.put(c);
+      this.contents.push(c);
+      this.model.addContent(c);
+    }
+    const tracked = parts.reduce((n, c) => n + c.tokens.filter((t) => t.itemId).length, 0);
+    const met = parts.reduce((n, c) => n + c.coverage * c.tokens.filter((t) => t.itemId).length, 0);
+    return { parts: parts.length, coverage: tracked ? met / tracked : 0 };
+  }
+
+  /** Keeps a sentence from a passage: it becomes a cloze cue for its words. */
+  async keepSentence(contentId: string, begin: number, end: number): Promise<void> {
+    if (this.model.kept.has(`${contentId}:${begin}`)) return;
+    await this.append({ kind: 'keep_sentence', contentId, begin, end });
+  }
+
+  async unkeepSentence(contentId: string, begin: number): Promise<void> {
+    if (!this.model.kept.has(`${contentId}:${begin}`)) return;
+    await this.append({ kind: 'unkeep_sentence', contentId, begin });
+  }
+
+  /** Whether texts can be added here (the desktop app's tokenizer and dictionary). */
+  get canAddText(): boolean {
+    return !!(this.opts.tokenizer && this.opts.dictionary && this.opts.contents);
+  }
+
   /** Adds content that is already stored elsewhere (or demo content that is never stored) without writing it. */
   adoptContent(c: StoredContent) {
     if (this.contents.some((x) => x.id === c.id)) return;
     this.contents.push(c);
     this.model.addContent(c);
+  }
+
+  /**
+   * Whether a word in a passage is highlighted: still new to reading (read in fewer passages than the config says)
+   * and not yet Known for recognition.
+   */
+  highlighted(itemId: string): boolean {
+    const id = this.opts.catalog.resolve(itemId);
+    const status = this.model.state(id, 'read').status;
+    if (status === 'known' || status === 'maintained') return false;
+    return (this.model.meetings.get(id) ?? 0) < this.config.reading.highlightMeetings;
   }
 
   content(id: string): StoredContent | undefined {

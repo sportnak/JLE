@@ -78,6 +78,8 @@ export interface EngineConfig {
     libraryCoverage: number;
     /** Days before a passage already read is offered again. */
     rereadAfterDays: number;
+    /** A word is highlighted while reading until it has been read in this many passages (architecture §4.7). */
+    highlightMeetings: number;
   };
   mix: {
     /** Recognition-Known word counts where stages 2, 3 and 4 begin. */
@@ -165,6 +167,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
     review: true,
     libraryCoverage: 0.6,
     rereadAfterDays: 3,
+    highlightMeetings: 3,
   },
   mix: {
     stageWords: [300, 800, 1700],

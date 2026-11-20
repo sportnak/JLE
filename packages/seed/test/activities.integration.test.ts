@@ -307,9 +307,9 @@ describe('code-graded activities never reach the model', () => {
       const { clock, engine } = await setup(llm);
       const knows = stageOneLearner(engine);
       const seen = (await days(engine, clock, knows)).flatMap((x) => x.seen);
-      // Only stage-1 types can appear for this learner. Reading and its questions need a stored passage, so they can't appear here; reading.integration.test.ts runs
+      // Only stage-1 types can appear for this learner. Reading, its questions and cloze need stored passages (and kept sentences), so they can't appear here; reading.integration.test.ts runs
       // them. Their planner hooks are still wrapped above, so they are still checked for never reaching the model.
-      for (const t of code.filter((x) => x.id !== 'reading' && x.id !== 'comprehension' && x.stages.includes(1))) expect(seen.some((v) => v.spec.type === t.id), t.id).toBe(true);
+      for (const t of code.filter((x) => !['reading', 'comprehension', 'cloze'].includes(x.id) && x.stages.includes(1))) expect(seen.some((v) => v.spec.type === t.id), t.id).toBe(true);
     } finally {
       [...respond, ...plan].forEach((undo) => undo());
     }
