@@ -7,7 +7,7 @@ import { FONTS, getFont, getVoice, setFont, setVoice, type FontChoice } from './
 
 const SAMPLE = 'こんにちは。日本語を勉強しましょう。';
 
-export function Settings({ engine, onReset }: { engine: Engine; onReset: () => void }) {
+export function Settings({ engine, onReset, onDemo }: { engine: Engine; onReset: () => void; onDemo: () => void }) {
   const [confirming, setConfirming] = useState(false);
 
   const download = async () => {
@@ -25,6 +25,16 @@ export function Settings({ engine, onReset }: { engine: Engine; onReset: () => v
 
       <VoiceSetting />
       <FontSetting />
+
+      <div className="setting">
+        <div>
+          <h2 className="t-heading">Activities</h2>
+          <p className="t-body jle-muted">Try every kind of activity the app has. Nothing you do there is saved.</p>
+        </div>
+        <button className="jle-btn" onClick={onDemo}>
+          See all activities
+        </button>
+      </div>
 
       <div className="setting">
         <div>

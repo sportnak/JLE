@@ -93,10 +93,10 @@ export function SessionView({ engine, sessionId, examples, onExit, onKeepGoing }
   );
 }
 
-type RendererProps = ActivityProps & { example: Item | undefined };
+export type RendererProps = ActivityProps & { example: Item | undefined };
 
 /** One renderer per activity type, keyed like the engine's registry. */
-const RENDERERS: Record<ActivityTypeId, (p: RendererProps) => ReactNode> = {
+export const RENDERERS: Record<ActivityTypeId, (p: RendererProps) => ReactNode> = {
   introduce: (p) => (p.activity.item.type === 'sound' ? <SoundIntro {...p} /> : <Introduce item={p.activity.item} example={p.example} onNext={p.onNext} />),
   retrieval: (p) => <Retrieval {...p} />,
   minimal_pair: (p) => <MinimalPairPrompt {...p} />,

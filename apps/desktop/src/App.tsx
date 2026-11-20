@@ -1,6 +1,7 @@
 import { Engine } from '@jle/engine';
 import { buildCatalog, buildCatalogData } from '@jle/seed';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityDemo } from './Demo';
 import { Home } from './Home';
 import { Progress } from './Progress';
 import { SessionView } from './SessionView';
@@ -11,7 +12,7 @@ import { exampleWords } from './ui';
 export const LEARNER_ID = 'local';
 const catalog = buildCatalog();
 
-type Screen = { name: 'home' } | { name: 'session'; sessionId: string } | { name: 'progress' } | { name: 'settings' };
+type Screen = { name: 'home' } | { name: 'session'; sessionId: string } | { name: 'progress' } | { name: 'settings' } | { name: 'demo' };
 const TABS = [
   { name: 'home', label: 'Today' },
   { name: 'progress', label: 'Progress' },
@@ -85,7 +86,7 @@ export function App() {
         </nav>
         <button
           className="jle-btn"
-          aria-current={screen.name === 'settings' ? 'page' : undefined}
+          aria-current={screen.name === 'settings' || screen.name === 'demo' ? 'page' : undefined}
           onClick={() => setScreen({ name: 'settings' })}
         >
           Settings
@@ -94,7 +95,10 @@ export function App() {
       <main className="main">
         {screen.name === 'home' && <Home key={version} engine={engine} onStart={startSession} />}
         {screen.name === 'progress' && <Progress key={version} engine={engine} onChange={refresh} />}
-        {screen.name === 'settings' && <Settings engine={engine} onReset={load} />}
+        {screen.name === 'settings' && <Settings engine={engine} onReset={load} onDemo={() => setScreen({ name: 'demo' })} />}
+        {screen.name === 'demo' && (
+          <ActivityDemo catalog={catalog} examples={examples} onBack={() => setScreen({ name: 'settings' })} />
+        )}
       </main>
     </div>
   );

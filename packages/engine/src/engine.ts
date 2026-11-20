@@ -197,6 +197,15 @@ export class Engine {
     return { done: false, activity: this.view(activityId, best.reason) };
   }
 
+  /** Starts an activity with a given spec instead of the planner's choice. For the demo page; graded like any other. */
+  async startActivity(sessionId: string, spec: ActivitySpec, reason = ''): Promise<ActivityView> {
+    if (!this.model.sessions.has(sessionId)) throw new Error(`Unknown session ${sessionId}`);
+    if (!this.model.item(spec.itemId)) throw new Error(`Unknown item ${spec.itemId}`);
+    const activityId = this.ids.next();
+    await this.append({ kind: 'activity_started', sessionId, activityId, spec });
+    return this.view(activityId, reason);
+  }
+
   view(activityId: string, reason = ''): ActivityView {
     const a = this.model.activities.get(activityId);
     if (!a) throw new Error(`Unknown activity ${activityId}`);

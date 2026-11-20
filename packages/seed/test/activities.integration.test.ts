@@ -364,3 +364,26 @@ describe('closed-exercise cap', () => {
     expect(r.share).toBeGreaterThan(0.6);
   });
 });
+
+describe('starting a chosen activity (the demo page)', () => {
+  it('grades it like a planned one and replays to the same state', async () => {
+    const { store, engine } = await setup();
+    const { sessionId } = await engine.startSession(10);
+    const word = catalog.inCluster('vocab-band-1').find((i) => i.written !== i.reading)!;
+    const view = await engine.startActivity(sessionId, { type: 'retrieval', itemId: word.id, cue: 'ja_to_en', purpose: 'practice', showFurigana: true });
+    expect(view.item.id).toBe(word.id);
+    const fb = await engine.recordInteraction(view.activityId, { kind: 'answer', text: word.gloss[0]!, latencyMs: 2000 });
+    expect(fb.kind).toBe('correct');
+    await engine.completeActivity(view.activityId);
+    const replayed = await Engine.create({ catalog, store, learnerId: 'me', ids: seqIds(), utcOffsetMinutes: 0 });
+    expect(replayed.learner.state(word.id, 'read')).toEqual(engine.learner.state(word.id, 'read'));
+  });
+
+  it('refuses an item the catalog does not have', async () => {
+    const { engine } = await setup();
+    const { sessionId } = await engine.startSession(10);
+    await expect(
+      engine.startActivity(sessionId, { type: 'introduce', itemId: 'vocab:nope' }),
+    ).rejects.toThrow('Unknown item');
+  });
+});
