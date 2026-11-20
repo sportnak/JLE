@@ -5,6 +5,7 @@
   "scripts": {
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "dev": "pnpm --filter @jle/desktop dev"
+    "dev": "pnpm --filter @jle/desktop dev",
+    "app": "sh apps/desktop/scripts/install-app.sh"
   }
 }
