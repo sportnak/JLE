@@ -56,6 +56,40 @@ export interface DictationSentence {
   segments: Segment[];
 }
 
+/** One step of a grammar point's token pattern: data, matched against tokenizer output (architecture §6.2). */
+export interface TokenPattern {
+  surface?: string;
+  lemma?: string;
+  /** First part-of-speech level, as Sudachi gives it (助詞, 動詞, …). */
+  pos?: string;
+  /** Conjugation form the token must be in, e.g. `te`. */
+  form?: string;
+}
+
+/** A sentence with a gap (＿) and two forms that could fill it, only one of them right. */
+export interface GrammarContrast {
+  sentence: string;
+  answer: string;
+  other: string;
+  translation: string;
+}
+
+/**
+ * A grammar point as data (packages/grammar). Its fact sheet is a gate: only an approved point reaches the learner,
+ * through `Catalog.grammar()`. Approval is a reviewed edit in the repo, by someone who reads Japanese well.
+ */
+export interface GrammarPoint {
+  id: string;
+  version: number;
+  label: string;
+  tags: { genki?: number; jlpt?: string };
+  prerequisites: string[];
+  confusables: string[];
+  matcher: TokenPattern[];
+  factSheet: { status: 'draft' | 'approved'; approvedBy?: string; approvedAt?: string; body: string };
+  contrasts: GrammarContrast[];
+}
+
 /** Static tables a small catalog is built from: kana, the starter list, sound features, authored sentences. */
 export interface CatalogData {
   items: Item[];
@@ -65,6 +99,8 @@ export interface CatalogData {
   sentences?: DictationSentence[];
   /** Retired item ids and the ids that replaced them, for logs written before the change. */
   aliases?: Record<string, string>;
+  /** Grammar points, drafts included: the catalog keeps only approved ones. */
+  grammar?: GrammarPoint[];
 }
 
 /**
@@ -89,6 +125,8 @@ export interface Catalog {
   pairsFor(itemId: string): MinimalPair[];
   /** Dictation sentences that contain the item. */
   sentencesWith(itemId: string): DictationSentence[];
+  /** Approved grammar points only. A draft never reaches the learner. */
+  grammar(): GrammarPoint[];
   /** Adds items met in stored content (words beyond the built-in list). Items already present are kept as they are. */
   extend(items: Item[]): void;
 }
@@ -204,6 +242,21 @@ export type ActivitySpec =
       blankEnd: number;
       /** The word as it stands in the sentence, written and in kana. */
       answers: string[];
+    }
+  | {
+      type: 'contrast';
+      /** The grammar point's item (`grammar:<id>`). */
+      itemId: string;
+      purpose: 'practice';
+      pointId: string;
+      /** The fact sheet version the example came from. */
+      version: number;
+      example: number;
+      sentence: string;
+      translation: string;
+      /** Both forms, in the order shown. */
+      options: [string, string];
+      answer: string;
     }
   | {
       type: 'comprehension';

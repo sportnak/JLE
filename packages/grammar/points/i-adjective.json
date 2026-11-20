@@ -1,0 +1,36 @@
+{
+  "id": "i-adjective",
+  "version": 1,
+  "label": "い-adjectives",
+  "tags": {
+    "genki": 5,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [
+    "na-adjective"
+  ],
+  "matcher": [
+    {
+      "pos": "形容詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "い-adjectives end in い and change form themselves: 高い → 高くない (not expensive), 高かった (was expensive). Before a noun they stay as they are: 高い本. いい is irregular: よくない, よかった."
+  },
+  "contrasts": [
+    {
+      "sentence": "昨日は寒＿です。",
+      "answer": "かった",
+      "other": "でした",
+      "translation": "It was cold yesterday."
+    },
+    {
+      "sentence": "この本は高＿です。",
+      "answer": "くない",
+      "other": "じゃない",
+      "translation": "This book is not expensive."
+    }
+  ]
+}

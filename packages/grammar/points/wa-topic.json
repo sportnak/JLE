@@ -1,0 +1,49 @@
+{
+  "id": "wa-topic",
+  "version": 1,
+  "label": "は (topic)",
+  "tags": {
+    "genki": 1,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [
+    "ga-subject"
+  ],
+  "matcher": [
+    {
+      "surface": "は",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "は marks the topic: what the sentence is about. It is pronounced わ. Use it for something already known or being contrasted: 私は学生です (As for me, I'm a student). New information that answers \"who?\" or \"what?\" takes が instead."
+  },
+  "contrasts": [
+    {
+      "sentence": "私＿学生です。",
+      "answer": "は",
+      "other": "が",
+      "translation": "I am a student."
+    },
+    {
+      "sentence": "今日＿月曜日です。",
+      "answer": "は",
+      "other": "が",
+      "translation": "Today is Monday."
+    },
+    {
+      "sentence": "これ＿私の本です。",
+      "answer": "は",
+      "other": "が",
+      "translation": "This is my book."
+    },
+    {
+      "sentence": "田中さん＿先生です。",
+      "answer": "は",
+      "other": "が",
+      "translation": "Ms. Tanaka is a teacher."
+    }
+  ]
+}

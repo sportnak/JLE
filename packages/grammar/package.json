@@ -1,0 +1,21 @@
+{
+  "name": "@jle/grammar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "status": "node scripts/status.ts"
+  },
+  "dependencies": {
+    "@jle/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "id": "e-direction",
+  "version": 1,
+  "label": "へ (direction)",
+  "tags": {
+    "genki": 3,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [
+    "ni-location"
+  ],
+  "matcher": [
+    {
+      "surface": "へ",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "へ marks the direction of movement and is pronounced え: 日本へ行きます. With verbs of going and coming, へ and に are both correct; へ stresses the direction, に the destination. Only に marks where something is."
+  },
+  "contrasts": [
+    {
+      "sentence": "机の上＿ペンがあります。",
+      "answer": "に",
+      "other": "へ",
+      "translation": "There is a pen on the desk."
+    }
+  ]
+}

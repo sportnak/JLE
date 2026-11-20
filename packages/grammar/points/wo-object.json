@@ -1,0 +1,43 @@
+{
+  "id": "wo-object",
+  "version": 1,
+  "label": "を (direct object)",
+  "tags": {
+    "genki": 3,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [
+    "ga-subject"
+  ],
+  "matcher": [
+    {
+      "surface": "を",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "を marks the direct object of an action: パンを食べます, 本を読みます. It is pronounced お. Words like 好き, 分かる and ある take が for what they are about, not を."
+  },
+  "contrasts": [
+    {
+      "sentence": "毎朝コーヒー＿飲みます。",
+      "answer": "を",
+      "other": "が",
+      "translation": "I drink coffee every morning."
+    },
+    {
+      "sentence": "私はコーヒー＿好きです。",
+      "answer": "が",
+      "other": "を",
+      "translation": "I like coffee."
+    },
+    {
+      "sentence": "手紙＿書きました。",
+      "answer": "を",
+      "other": "が",
+      "translation": "I wrote a letter."
+    }
+  ]
+}

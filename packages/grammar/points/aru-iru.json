@@ -1,0 +1,51 @@
+{
+  "id": "aru-iru",
+  "version": 1,
+  "label": "ある / いる (existence)",
+  "tags": {
+    "genki": 4,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [],
+  "matcher": [
+    {
+      "lemma": "ある",
+      "pos": "動詞"
+    },
+    {
+      "lemma": "いる",
+      "pos": "動詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "Both mean \"there is\". いる is for living things that move by themselves (people, animals); ある is for things, plants and events: 公園に犬がいます, 公園にベンチがあります. Use ある for a test or a party too: 明日テストがあります."
+  },
+  "contrasts": [
+    {
+      "sentence": "部屋に猫が＿。",
+      "answer": "います",
+      "other": "あります",
+      "translation": "There is a cat in the room."
+    },
+    {
+      "sentence": "机の上に本が＿。",
+      "answer": "あります",
+      "other": "います",
+      "translation": "There is a book on the desk."
+    },
+    {
+      "sentence": "明日、テストが＿。",
+      "answer": "あります",
+      "other": "います",
+      "translation": "There is a test tomorrow."
+    },
+    {
+      "sentence": "駅に友達が＿。",
+      "answer": "います",
+      "other": "あります",
+      "translation": "My friend is at the station."
+    }
+  ]
+}

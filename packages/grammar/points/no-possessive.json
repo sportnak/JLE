@@ -1,0 +1,29 @@
+{
+  "id": "no-possessive",
+  "version": 1,
+  "label": "の (possession, description)",
+  "tags": {
+    "genki": 1,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [],
+  "matcher": [
+    {
+      "surface": "の",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "の links two nouns: the first describes or owns the second. 私の本 (my book), 日本語の先生 (a Japanese teacher), 駅の近く (near the station)."
+  },
+  "contrasts": [
+    {
+      "sentence": "これは私＿本です。",
+      "answer": "の",
+      "other": "は",
+      "translation": "This is my book."
+    }
+  ]
+}

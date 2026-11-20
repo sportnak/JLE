@@ -734,3 +734,11 @@ rt:not(.t-furigana) {
   border-bottom: 2px solid var(--indigo);
   padding: 0 var(--space-1);
 }
+.fact-sheet {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--indigo);
+  background: var(--indigo-tint);
+  border-radius: 4px;
+}

@@ -1,0 +1,29 @@
+{
+  "id": "tai-want",
+  "version": 1,
+  "label": "〜たい (want to)",
+  "tags": {
+    "genki": 11,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [],
+  "matcher": [
+    {
+      "lemma": "たい",
+      "pos": "助動詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "The ます-stem + たい means \"want to do\": 日本へ行きたいです (I want to go to Japan). It conjugates like an い-adjective: 行きたくない, 行きたかった. The thing wanted can take が or を: 水が飲みたい / 水を飲みたい."
+  },
+  "contrasts": [
+    {
+      "sentence": "日本へ行き＿です。",
+      "answer": "たい",
+      "other": "ます",
+      "translation": "I want to go to Japan."
+    }
+  ]
+}

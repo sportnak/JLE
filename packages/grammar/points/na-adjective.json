@@ -1,0 +1,36 @@
+{
+  "id": "na-adjective",
+  "version": 1,
+  "label": "な-adjectives",
+  "tags": {
+    "genki": 5,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [
+    "i-adjective"
+  ],
+  "matcher": [
+    {
+      "pos": "形状詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "な-adjectives work like nouns: 静かです, 静かじゃありません, 静かでした. Before a noun they take な: 静かな町 (a quiet town). きれい and 嫌い end in い but are な-adjectives."
+  },
+  "contrasts": [
+    {
+      "sentence": "ここは静か＿町です。",
+      "answer": "な",
+      "other": "い",
+      "translation": "This is a quiet town."
+    },
+    {
+      "sentence": "昨日は暇＿。",
+      "answer": "でした",
+      "other": "かったです",
+      "translation": "I was free yesterday."
+    }
+  ]
+}

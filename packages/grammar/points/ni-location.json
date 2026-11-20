@@ -1,0 +1,49 @@
+{
+  "id": "ni-location",
+  "version": 1,
+  "label": "に (place of existence, destination)",
+  "tags": {
+    "genki": 3,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [
+    "de-location"
+  ],
+  "matcher": [
+    {
+      "surface": "に",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "に marks where something is (with ある and いる) and where someone goes: 駅に本屋があります, 学校に行きます. For where an action happens, use で instead: 駅で本を買います."
+  },
+  "contrasts": [
+    {
+      "sentence": "駅の近く＿店があります。",
+      "answer": "に",
+      "other": "で",
+      "translation": "There is a shop near the station."
+    },
+    {
+      "sentence": "毎日学校＿行きます。",
+      "answer": "に",
+      "other": "で",
+      "translation": "I go to school every day."
+    },
+    {
+      "sentence": "猫は部屋＿います。",
+      "answer": "に",
+      "other": "で",
+      "translation": "The cat is in the room."
+    },
+    {
+      "sentence": "東京＿住んでいます。",
+      "answer": "に",
+      "other": "で",
+      "translation": "I live in Tokyo."
+    }
+  ]
+}

@@ -242,7 +242,7 @@ One file per grammar point, validated against a JSON schema at build time:
 ```
 
 - **Approval is a gate.** `Catalog.grammar()` returns only approved points, and explanations are generated only from approved fact sheets. A draft never reaches you.
-- **Authoring:** a script asks the model to draft a fact sheet as `status: "draft"`, and a person reviews and approves it. Who approves, and where, is an open question (§14).
+- **Authoring:** a script asks the model to draft a fact sheet as `status: "draft"`, and a person reviews and approves it. Approval is a reviewed edit to the point's file (`approvedBy`, `approvedAt`); see `packages/grammar/README.md`.
 - Seed about 140 points for Genki I and II. Past N4 is more files, not more code.
 
 ## 6. Content pipeline
@@ -376,10 +376,11 @@ With no network or no key, the engine still serves retrieval prompts, kana study
 
 ## 14. Open questions
 
-1. **Grammar approval:** who approves fact sheets, and where: files in this repo approved through PR review (recommended), or an in-app review screen? The approver needs to read Japanese well enough to catch a wrong fact sheet.
 2. **Distribution:** personal-only, or might it ship? This decides the frequency-list license and whether the key eventually needs a backend.
 3. **Genki in parallel:** should the planner pin the frontier to your current chapter?
 4. **Evidence strengths for the new activities:** transformation, contrast choice, error found and fixed, minimal-pair choice, dictation, self-explanation, role-play goal reached, situation-prompt target used. Proposed in the PRD as starting values to tune.
+
+Decided 2026-11-21: grammar fact sheets are approved as reviewed edits to files in this repo (`packages/grammar`), by someone who reads Japanese well; `Catalog.grammar()` returns approved points only.
 
 Decided 2026-11-20: one item per JMdict entry; frequency from wordfreq (CC BY-SA 4.0); Sudachi core dictionary; the engine loads the top words in memory; old ids map to entries on replay.
 

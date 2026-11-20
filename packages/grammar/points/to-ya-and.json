@@ -1,0 +1,39 @@
+{
+  "id": "to-ya-and",
+  "version": 1,
+  "label": "と / や (and)",
+  "tags": {
+    "genki": 4,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [],
+  "matcher": [
+    {
+      "surface": "と",
+      "pos": "助詞"
+    },
+    {
+      "surface": "や",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "Both join nouns. と lists everything: パンと卵を買いました (I bought bread and eggs, and that's all). や gives examples from a longer list: パンや卵を買いました (bread, eggs and so on)."
+  },
+  "contrasts": [
+    {
+      "sentence": "パン＿卵を買いました。それだけです。",
+      "answer": "と",
+      "other": "や",
+      "translation": "I bought bread and eggs. That's all."
+    },
+    {
+      "sentence": "本＿ノートなどを買いました。",
+      "answer": "や",
+      "other": "と",
+      "translation": "I bought books, notebooks and so on."
+    }
+  ]
+}

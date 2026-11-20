@@ -67,6 +67,8 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
     if (recentItems.has(itemId)) continue;
     const item = model.item(itemId);
     if (!item || !prerequisitesMet(model, item)) continue;
+    // A grammar point missed in a contrast is explained there, from its approved fact sheet: not shown as a word card.
+    if (item.type === 'grammar') continue;
     // In the open-ended tracks (words, kanji) a placement probe beyond the frontier only places the learner: a
     // rare word is not taught for being missed. Kana and sound features are small closed sets, taught back as before.
     const openEnded = item.type === 'vocab' || item.type === 'kanji';

@@ -1,0 +1,49 @@
+{
+  "id": "de-location",
+  "version": 1,
+  "label": "で (place of action)",
+  "tags": {
+    "genki": 3,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [
+    "ni-location"
+  ],
+  "matcher": [
+    {
+      "surface": "で",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "で marks where an action takes place: 図書館で勉強します (I study at the library). For where something simply is, or where someone goes, use に: 図書館に本があります. 住む takes に, because it is about where you are, not something you do there."
+  },
+  "contrasts": [
+    {
+      "sentence": "図書館＿勉強します。",
+      "answer": "で",
+      "other": "に",
+      "translation": "I study at the library."
+    },
+    {
+      "sentence": "レストラン＿昼ご飯を食べました。",
+      "answer": "で",
+      "other": "に",
+      "translation": "I ate lunch at a restaurant."
+    },
+    {
+      "sentence": "駅＿友達に会いました。",
+      "answer": "で",
+      "other": "に",
+      "translation": "I met a friend at the station."
+    },
+    {
+      "sentence": "家＿テレビを見ます。",
+      "answer": "で",
+      "other": "に",
+      "translation": "I watch TV at home."
+    }
+  ]
+}

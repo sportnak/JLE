@@ -20,7 +20,8 @@ export function retrievalSpec(item: Item, skill: Skill, purpose: Spec['purpose']
   };
 }
 
-const serves = (item: Item, skill: Skill) => item.type !== 'sound' && (skill === 'read' || skill === 'write');
+// Sound features have minimal pairs and grammar points have contrast choice; neither is a word to translate.
+const serves = (item: Item, skill: Skill) => item.type !== 'sound' && item.type !== 'grammar' && (skill === 'read' || skill === 'write');
 
 /** One item and a cue; the answer is typed and checked by string and reading. */
 export const retrieval: ActivityType<Spec> = {

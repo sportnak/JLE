@@ -1,6 +1,7 @@
-import { EXTRA_CLUSTER, memoryCatalog, type Catalog, type CatalogData, type Cluster, type DictationSentence, type Item, type ItemEdge, type MinimalPair } from '@jle/engine';
+import { EXTRA_CLUSTER, GRAMMAR_CLUSTER, grammarItems, memoryCatalog, type GrammarPoint, type Catalog, type CatalogData, type Cluster, type DictationSentence, type Item, type ItemEdge, type MinimalPair } from '@jle/engine';
 import { FEATURES, PAIRS, pairId } from '@jle/sounds';
 import { toHiragana } from 'wanakana';
+import { GRAMMAR } from '@jle/grammar';
 import { kanaCatalog, kanaId, moraeOf } from './kana';
 import { GLUE, SENTENCES } from './sentences';
 import { STARTER_POS, STARTER_VOCAB } from './vocab';
@@ -10,8 +11,8 @@ const STARTER_BAND = 20;
 const WORD_BAND = 100;
 
 /** The starter catalog, indexed. Word → kana edges are computed from each word's reading when asked for. */
-export function buildCatalog(): Catalog {
-  const data = buildCatalogData();
+export function buildCatalog(grammar?: GrammarPoint[]): Catalog {
+  const data = buildCatalogData(grammar);
   const kanaIds = new Set(data.items.filter((i) => i.type === 'script').map((i) => i.id));
   return memoryCatalog(data, (item) => (item.type === 'vocab' ? componentEdges(item, kanaIds) : []));
 }
@@ -24,8 +25,11 @@ export function componentEdges(word: Item, kanaIds: Set<string>): ItemEdge[] {
     .map((from) => ({ from, to: word.id, kind: 'component' as const }));
 }
 
-/** The static tables behind the starter catalog. Stored edges are the kana's own; word edges are computed. */
-export function buildCatalogData(): CatalogData {
+/**
+ * The static tables behind the catalog. Stored edges are the kana's own; word edges are computed. Grammar points are
+ * passed in full, drafts included; the catalog keeps only approved ones. `grammar` replaces the repo's points in tests.
+ */
+export function buildCatalogData(grammar: GrammarPoint[] = GRAMMAR): CatalogData {
   const kana = kanaCatalog();
   const kanaIds = new Set(kana.items.map((i) => i.id));
   const items: Item[] = [...kana.items];
@@ -78,6 +82,10 @@ export function buildCatalogData(): CatalogData {
     });
   });
 
+  // Grammar points, reached through contrast choice; never walked in order like words.
+  clusters.push({ id: GRAMMAR_CLUSTER, track: 'grammar', order: 90_000, label: 'Grammar', wantedOnly: true });
+  items.push(...grammarItems(grammar));
+
   // Words beyond the list, brought in by passages; taught only when looked up.
   clusters.push({ id: EXTRA_CLUSTER, track: 'reading', order: 100_000, label: 'Words from your reading', wantedOnly: true });
 
@@ -89,6 +97,7 @@ export function buildCatalogData(): CatalogData {
     pairs: sounds.pairs,
     sentences: dictationSentences(items.filter((i) => i.type === 'vocab' && i.order < 1000 + STARTER_COUNT)),
     aliases: STARTER_ALIASES,
+    grammar,
   };
 }
 

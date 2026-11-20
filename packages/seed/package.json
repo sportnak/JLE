@@ -12,7 +12,8 @@
   "dependencies": {
     "@jle/engine": "workspace:*",
     "@jle/sounds": "workspace:*",
-    "wanakana": "^5.3.1"
+    "wanakana": "^5.3.1",
+    "@jle/grammar": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

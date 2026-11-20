@@ -1,7 +1,7 @@
 import type { ActivityTypeId, ActivityView, Engine, Feedback, Item, SessionRecap } from '@jle/engine';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toKana } from 'wanakana';
-import { ClozePrompt, ComprehensionPrompt, TransformationPrompt, DictationPrompt, MinimalPairPrompt, ReadingPrompt, SoundIntro, type ActivityProps } from './Activities';
+import { ClozePrompt, ComprehensionPrompt, ContrastPrompt, TransformationPrompt, DictationPrompt, MinimalPairPrompt, ReadingPrompt, SoundIntro, type ActivityProps } from './Activities';
 import { useEnter } from './hooks';
 import { speak } from './host';
 import { FontChips, FuriganaSizeChips, SpeedChoice, TextSizeChips, VoiceSelect } from './Controls';
@@ -107,6 +107,7 @@ export const RENDERERS: Record<ActivityTypeId, (p: RendererProps) => ReactNode> 
   comprehension: (p) => <ComprehensionPrompt {...p} />,
   transformation: (p) => <TransformationPrompt {...p} />,
   cloze: (p) => <ClozePrompt {...p} />,
+  contrast: (p) => <ContrastPrompt {...p} />,
 };
 
 /** Speed, voice and font, changeable without leaving the lesson. Each applies at once. */

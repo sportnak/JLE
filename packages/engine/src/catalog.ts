@@ -1,5 +1,5 @@
 import { EXTRA_CLUSTER } from './content/reading';
-import type { Catalog, CatalogData, Cluster, DictationSentence, Item, ItemEdge, MinimalPair } from './types';
+import type { Catalog, CatalogData, Cluster, DictationSentence, GrammarPoint, Item, ItemEdge, MinimalPair } from './types';
 
 function group<T>(rows: T[], keyOf: (row: T) => string[]): Map<string, T[]> {
   const out = new Map<string, T[]>();
@@ -25,6 +25,8 @@ export function memoryCatalog(data: CatalogData, computeEdges?: (item: Item) => 
     ...new Set(s.segments.flatMap((g) => (g.itemId ? [g.itemId] : []))),
   ]);
   const computed = new Map<string, ItemEdge[]>();
+  // The approval gate: drafts are dropped here, so nothing past the catalog can see them.
+  const grammar = (data.grammar ?? []).filter(isApproved);
   const aliases = new Map(Object.entries(data.aliases ?? {}));
 
   return {
@@ -34,6 +36,7 @@ export function memoryCatalog(data: CatalogData, computeEdges?: (item: Item) => 
     cluster: (id) => clusters.get(id),
     inCluster: (id) => members.get(id) ?? [],
     byWritten: (w) => written.get(w) ?? [],
+    grammar: () => grammar,
     edgesInto(id) {
       const own = stored.get(id) ?? [];
       const item = computeEdges && items.get(id);
@@ -63,4 +66,30 @@ export function memoryCatalog(data: CatalogData, computeEdges?: (item: Item) => 
       }
     },
   };
+}
+
+/** Approved means a named reviewer and a date, not just the word. */
+export function isApproved(p: GrammarPoint): boolean {
+  return p.factSheet.status === 'approved' && !!p.factSheet.approvedBy?.trim() && !!p.factSheet.approvedAt?.trim();
+}
+
+export const grammarItemId = (pointId: string) => `grammar:${pointId}`;
+
+/** The cluster grammar items live in. They are reached through grammar activities, never the word frontier. */
+export const GRAMMAR_CLUSTER = 'grammar';
+
+/** Learner items for approved grammar points: recognition only for now, practised by contrast choice. */
+export function grammarItems(points: GrammarPoint[]): Item[] {
+  return points.filter(isApproved).map((p) => ({
+    id: grammarItemId(p.id),
+    language: 'ja',
+    type: 'grammar',
+    written: p.label,
+    reading: '',
+    gloss: [p.label],
+    skills: ['read'],
+    cluster: GRAMMAR_CLUSTER,
+    order: 500_000 + (p.tags.genki ?? 99) * 100,
+    tags: { ...(p.tags.genki ? { genki: p.tags.genki } : {}), ...(p.tags.jlpt ? { jlpt: p.tags.jlpt } : {}) },
+  }));
 }

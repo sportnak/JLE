@@ -1,0 +1,34 @@
+{
+  "id": "te-iru",
+  "version": 1,
+  "label": "〜ている (ongoing action, state)",
+  "tags": {
+    "genki": 7,
+    "jlpt": "N5"
+  },
+  "prerequisites": [
+    "te-form"
+  ],
+  "confusables": [],
+  "matcher": [
+    {
+      "form": "te",
+      "pos": "動詞"
+    },
+    {
+      "lemma": "いる"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "Verb in the て-form + いる means an action in progress (今、本を読んでいます: I am reading a book now) or a resulting state (結婚しています: is married; 東京に住んでいます: lives in Tokyo)."
+  },
+  "contrasts": [
+    {
+      "sentence": "今、雨が降って＿。",
+      "answer": "います",
+      "other": "あります",
+      "translation": "It is raining now."
+    }
+  ]
+}

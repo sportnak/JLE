@@ -1,0 +1,51 @@
+{
+  "id": "ga-subject",
+  "version": 1,
+  "label": "が (subject)",
+  "tags": {
+    "genki": 3,
+    "jlpt": "N5"
+  },
+  "prerequisites": [
+    "wa-topic"
+  ],
+  "confusables": [
+    "wa-topic"
+  ],
+  "matcher": [
+    {
+      "surface": "が",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "が marks the subject when it is new information or the focus: 誰が来ましたか (Who came?) — 田中さんが来ました (Tanaka came). It also marks the object of 好き, 分かる and ある/いる: 猫が好きです, 犬がいます. Question words such as 誰 and 何 as subjects always take が, never は."
+  },
+  "contrasts": [
+    {
+      "sentence": "誰＿来ましたか。",
+      "answer": "が",
+      "other": "は",
+      "translation": "Who came?"
+    },
+    {
+      "sentence": "私は猫＿好きです。",
+      "answer": "が",
+      "other": "は",
+      "translation": "I like cats."
+    },
+    {
+      "sentence": "公園に子供＿います。",
+      "answer": "が",
+      "other": "は",
+      "translation": "There are children in the park."
+    },
+    {
+      "sentence": "日本語＿分かりますか。",
+      "answer": "が",
+      "other": "は",
+      "translation": "Do you understand Japanese?"
+    }
+  ]
+}

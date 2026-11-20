@@ -1,0 +1,31 @@
+{
+  "id": "mo-also",
+  "version": 1,
+  "label": "も (also)",
+  "tags": {
+    "genki": 2,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [
+    "wa-topic"
+  ],
+  "matcher": [
+    {
+      "surface": "も",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "も means \"also, too\" and replaces は, が or を: 私も学生です (I am a student too). With a negative it means \"(not) either\": 私も行きません."
+  },
+  "contrasts": [
+    {
+      "sentence": "田中さんは学生です。私＿学生です。",
+      "answer": "も",
+      "other": "は",
+      "translation": "Ms. Tanaka is a student. I am a student too."
+    }
+  ]
+}

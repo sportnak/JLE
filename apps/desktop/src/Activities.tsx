@@ -770,3 +770,87 @@ export function ClozePrompt({ engine, activity, onNext }: ActivityProps) {
     </div>
   );
 }
+
+type ContrastSpec = Extract<ActivitySpec, { type: 'contrast' }>;
+
+/** Two confusable forms for one gap. A wrong choice shows the point's approved fact sheet; drafts never reach here. */
+export function ContrastPrompt({ engine, activity, onNext }: ActivityProps) {
+  const spec = activity.spec as ContrastSpec;
+  const point = engine.learner.catalog.grammar().find((p) => p.id === spec.pointId);
+  const [before, after] = spec.sentence.split('＿');
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const shownAt = useRef(performance.now());
+  useEnter(feedback ? onNext : null);
+
+  const send = async (choice: string | null) => {
+    if (feedback) return;
+    const latencyMs = Math.round(performance.now() - shownAt.current);
+    setChosen(choice);
+    setFeedback(
+      await engine.recordInteraction(
+        activity.activityId,
+        choice === null ? { kind: 'dont_know', latencyMs } : { kind: 'choice', choice, latencyMs },
+      ),
+    );
+  };
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const option = spec.options[Number(e.key) - 1];
+      if (option && !(e.target instanceof HTMLInputElement)) void sendRef.current(option);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [spec.options]);
+
+  return (
+    <div className="jle-stack">
+      <span className="jle-label">WHICH FITS?</span>
+      <p className="t-reading cloze-sentence" lang="ja">
+        {before}
+        <span className={`cloze-gap ${feedback ? 'filled' : ''}`}>{feedback ? spec.answer : '＿＿'}</span>
+        {after}
+      </p>
+      <div className="jle-choices pair-choices" role="group" aria-label="The two forms">
+        {spec.options.map((option, i) => (
+          <button
+            key={option}
+            className="jle-btn jle-choice"
+            lang="ja"
+            aria-pressed={chosen === option}
+            aria-keyshortcuts={String(i + 1)}
+            disabled={!!feedback}
+            onClick={() => void send(option)}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+      {!feedback && (
+        <button type="button" className="jle-btn jle-btn-dk" onClick={() => void send(null)}>
+          I'm not sure
+        </button>
+      )}
+      {feedback && (
+        <>
+          <div className={`jle-note ${feedback.kind === 'correct' ? 'jle-note-good' : feedback.kind === 'revealed' ? 'jle-note-neutral' : 'jle-note-bad'}`} role="status">
+            <b>{feedback.kind === 'correct' ? 'Yes.' : feedback.kind === 'revealed' ? 'Noted.' : 'Not quite.'}</b>
+            <span>{spec.translation}</span>
+          </div>
+          {feedback.kind !== 'correct' && point && (
+            <div className="fact-sheet">
+              <span className="jle-label">{point.label.toUpperCase()}</span>
+              <p className="t-body">
+                <JaRun text={point.factSheet.body} />
+              </p>
+            </div>
+          )}
+          <NextButton onNext={onNext} />
+          <Flag engine={engine} activityId={activity.activityId} onNext={onNext} />
+        </>
+      )}
+    </div>
+  );
+}

@@ -20,6 +20,8 @@ export interface EngineConfig {
     comprehension: number;
     /** Producing a form of a word: mostly a grammar check, so it weighs on the word lightly. */
     transformation: number;
+    /** Choosing between two confusable grammar forms. */
+    contrastChoice: number;
   };
   modifiers: {
     supportDiscount: number;
@@ -118,6 +120,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
     readPast: 0.2,
     comprehension: 0.4,
     transformation: 0.4,
+    contrastChoice: 0.5,
   },
   modifiers: {
     supportDiscount: 0.6,

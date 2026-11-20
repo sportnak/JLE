@@ -1,6 +1,7 @@
 import type { ActivitySpec, ActivityTypeId } from '../types';
 import { cloze } from './cloze';
 import { comprehension } from './comprehension';
+import { contrast } from './contrast';
 import { dictation } from './dictation';
 import { introduce } from './introduce';
 import { minimalPair } from './minimalPair';
@@ -19,6 +20,7 @@ export const REGISTRY: Registry = {
   comprehension,
   transformation,
   cloze,
+  contrast,
 };
 
 export const activityTypes = (): ActivityType[] => Object.values(REGISTRY) as ActivityType[];

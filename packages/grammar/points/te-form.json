@@ -1,0 +1,35 @@
+{
+  "id": "te-form",
+  "version": 1,
+  "label": "て-form (and, requests)",
+  "tags": {
+    "genki": 6,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [],
+  "matcher": [
+    {
+      "form": "te",
+      "pos": "動詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "The て-form links actions in order (起きて、顔を洗います: I get up and wash my face) and with ください makes a request (窓を開けてください: please open the window). う, つ, る verbs → って; む, ぶ, ぬ → んで; く → いて; ぐ → いで; す → して. 行く is irregular: 行って."
+  },
+  "contrasts": [
+    {
+      "sentence": "窓を開け＿ください。",
+      "answer": "て",
+      "other": "た",
+      "translation": "Please open the window."
+    },
+    {
+      "sentence": "ここで待っ＿ください。",
+      "answer": "て",
+      "other": "た",
+      "translation": "Please wait here."
+    }
+  ]
+}

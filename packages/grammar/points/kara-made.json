@@ -1,0 +1,39 @@
+{
+  "id": "kara-made",
+  "version": 1,
+  "label": "から / まで (from, until)",
+  "tags": {
+    "genki": 4,
+    "jlpt": "N5"
+  },
+  "prerequisites": [],
+  "confusables": [],
+  "matcher": [
+    {
+      "surface": "から",
+      "pos": "助詞"
+    },
+    {
+      "surface": "まで",
+      "pos": "助詞"
+    }
+  ],
+  "factSheet": {
+    "status": "draft",
+    "body": "から marks a starting point and まで an end point, in time or space: 九時から五時まで働きます (I work from nine to five), 駅まで歩きます (I walk to the station)."
+  },
+  "contrasts": [
+    {
+      "sentence": "朝九時＿働きます。",
+      "answer": "から",
+      "other": "まで",
+      "translation": "I work from nine in the morning."
+    },
+    {
+      "sentence": "駅＿歩きました。",
+      "answer": "まで",
+      "other": "から",
+      "translation": "I walked as far as the station."
+    }
+  ]
+}
