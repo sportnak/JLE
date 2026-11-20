@@ -120,7 +120,8 @@ export class LearnerModel {
     return new Date(at.getTime() + this.utcOffsetMinutes * 60_000).toISOString().slice(0, 10);
   }
 
-  apply(e: InteractionEvent): Feedback {
+  apply(raw: InteractionEvent): Feedback {
+    const e = canonical(raw, this.catalog);
     this.lastSeq = Math.max(this.lastSeq, e.seq);
     switch (e.kind) {
       case 'session_started':
@@ -340,6 +341,26 @@ export class LearnerModel {
     if (recent.length === 0) return { rate: 1, n: 0 };
     return { rate: recent.filter((o) => o.correct).length / recent.length, n: recent.length };
   }
+}
+
+/** The event with retired item ids replaced by current ones. The log itself is never rewritten. */
+export function canonical(e: InteractionEvent, catalog: Catalog): InteractionEvent {
+  if (e.kind === 'override') {
+    const itemId = catalog.resolve(e.itemId);
+    return itemId === e.itemId ? e : { ...e, itemId };
+  }
+  if (e.kind !== 'activity_started') return e;
+  const spec = e.spec;
+  const itemId = catalog.resolve(spec.itemId);
+  if (spec.type === 'dictation') {
+    const segments = spec.segments.map((g) => {
+      const id = g.itemId && catalog.resolve(g.itemId);
+      return id && id !== g.itemId ? { ...g, itemId: id } : g;
+    });
+    const same = itemId === spec.itemId && segments.every((g, i) => g === spec.segments[i]);
+    return same ? e : { ...e, spec: { ...spec, itemId, segments } };
+  }
+  return itemId === spec.itemId ? e : { ...e, spec: { ...spec, itemId } };
 }
 
 export function derive(

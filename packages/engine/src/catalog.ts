@@ -22,9 +22,11 @@ export function memoryCatalog(data: CatalogData, computeEdges?: (item: Item) => 
     ...new Set(s.segments.flatMap((g) => (g.itemId ? [g.itemId] : []))),
   ]);
   const computed = new Map<string, ItemEdge[]>();
+  const aliases = new Map(Object.entries(data.aliases ?? {}));
 
   return {
     item: (id) => items.get(id),
+    resolve: (id) => aliases.get(id) ?? id,
     clusters: (): Cluster[] => [...clusters.values()],
     cluster: (id) => clusters.get(id),
     inCluster: (id) => members.get(id) ?? [],

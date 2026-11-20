@@ -61,6 +61,8 @@ export interface CatalogData {
   clusters: Cluster[];
   pairs?: MinimalPair[];
   sentences?: DictationSentence[];
+  /** Retired item ids and the ids that replaced them, for logs written before the change. */
+  aliases?: Record<string, string>;
 }
 
 /**
@@ -69,6 +71,8 @@ export interface CatalogData {
  */
 export interface Catalog {
   item(id: string): Item | undefined;
+  /** The current id for an item id found in the log: a retired id maps to its replacement, any other is unchanged. */
+  resolve(id: string): string;
   /** Clusters (kana groups, word bands), in no particular order. A few dozen, never per item. */
   clusters(): Cluster[];
   cluster(id: string): Cluster | undefined;

@@ -6,6 +6,7 @@ import {
   DEFAULT_CONFIG,
   Engine,
   MemoryEventStore,
+  memoryCatalog,
   type ActivityView,
   type Clock,
   type Ids,
@@ -15,7 +16,7 @@ import {
   typeOf,
 } from '@jle/engine';
 import { createScheduler } from '../../engine/src/model';
-import { buildCatalog } from '../src/index';
+import { buildCatalog, buildCatalogData, componentEdges } from '../src/index';
 
 const catalog = buildCatalog();
 const item = (id: string) => catalog.item(id)!;
@@ -385,5 +386,40 @@ describe('starting a chosen activity (the demo page)', () => {
     await expect(
       engine.startActivity(sessionId, { type: 'introduce', itemId: 'vocab:nope' }),
     ).rejects.toThrow('Unknown item');
+  });
+});
+
+describe('retired item ids', () => {
+  it('a log written under old ids replays to the same state through aliases', async () => {
+    const { clock, store, engine } = await setup();
+    for (let day = 0; day < 3; day++) {
+      const { sessionId, next } = await engine.startSession(10);
+      let n = next;
+      while (!n.done) {
+        const input = answerFor(n.activity, (id) => id.startsWith('kana:') || id === 'vocab:私' || id === 'vocab:学生');
+        if (input) await engine.recordInteraction(n.activity.activityId, input);
+        await engine.completeActivity(n.activity.activityId);
+        clock.advance(20_000);
+        n = await engine.nextActivity(sessionId);
+      }
+      clock.advance(24 * 3600_000);
+    }
+    const old: Record<string, string> = { 'kana:あ': 'old:a', 'kana:い': 'old:i' };
+    const rename = (id: string) => old[id] ?? id;
+    const legacy = JSON.parse(JSON.stringify(store.events), (k, v) => (k === 'itemId' && typeof v === 'string' ? rename(v) : v));
+    expect(JSON.stringify(legacy)).toContain('old:a');
+
+    const data = buildCatalogData();
+    const kanaIds = new Set(data.items.filter((i) => i.type === 'script').map((i) => i.id));
+    const aliased = memoryCatalog(
+      { ...data, aliases: Object.fromEntries(Object.entries(old).map(([now, was]) => [was, now])) },
+      (i) => (i.type === 'vocab' ? componentEdges(i, kanaIds) : []),
+    );
+    const config = DEFAULT_CONFIG;
+    const scheduler = await createScheduler(config);
+    const replayed = derive(legacy, aliased, config, scheduler);
+    const original = derive(store.events, catalog, config, scheduler);
+    expect([...replayed.states.entries()]).toEqual([...original.states.entries()]);
+    expect([...replayed.states.keys()].some((k) => k.startsWith('old:'))).toBe(false);
   });
 });
