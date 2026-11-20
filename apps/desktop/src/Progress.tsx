@@ -1,4 +1,4 @@
-import type { Engine } from '@jle/engine';
+import type { Engine, ItemRow } from '@jle/engine';
 import { useMemo, useState } from 'react';
 import { StatusChip } from './ui';
 
@@ -129,14 +129,14 @@ function ItemTable({
   const threshold = engine.learner.config.model.knownThreshold;
 
   const rows = useMemo(() => {
-    const byItem = new Map<string, { item: (typeof state.items)[number]['item']; skills: typeof state.items }>();
-    for (const row of state.items.filter((r) => r.item.cluster === cluster)) {
+    const byItem = new Map<string, { item: ItemRow['item']; skills: ItemRow[] }>();
+    for (const row of engine.clusterRows(cluster)) {
       const entry = byItem.get(row.item.id) ?? { item: row.item, skills: [] };
       entry.skills.push(row);
       byItem.set(row.item.id, entry);
     }
     return [...byItem.values()];
-  }, [state, cluster]);
+  }, [engine, state, cluster]);
 
   const markKnown = async (itemId: string) => {
     await engine.overrideItem(itemId);

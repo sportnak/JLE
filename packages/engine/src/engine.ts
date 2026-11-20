@@ -76,9 +76,18 @@ export interface SessionClock {
   remainingMs: number;
 }
 
+export interface ItemRow {
+  item: Item;
+  skill: Skill;
+  status: Status;
+  pKnown: number;
+  dueAt: string | null;
+  lapses: number;
+}
+
 export interface StateSummary {
+  /** Item-skill rows by status. Only met items have state, so Unseen is the remainder. */
   counts: Record<Status, number>;
-  items: { item: Item; skill: Skill; status: Status; pKnown: number; dueAt: string | null; lapses: number }[];
   placement: { cluster: string; label: string; placement: string; inferred: boolean }[];
   retention: { rate: number; n: number };
 }
@@ -333,32 +342,40 @@ export class Engine {
     return frontierItems(this.model, new Set()).slice(0, n);
   }
 
-  getLearnerState(): StateSummary {
-    const counts: Record<Status, number> = { unseen: 0, introduced: 0, learning: 0, known: 0, maintained: 0, leech: 0 };
-    const items: StateSummary['items'] = [];
-    // Every item of every cluster, for the progress grids. At dictionary scale this becomes per-cluster (step 1b).
-    const all = this.opts.catalog.clusters().flatMap((c) => this.opts.catalog.inCluster(c.id));
-    for (const item of all) {
-      for (const skill of item.skills) {
+  /** Every item-skill row of one cluster, for the progress table. */
+  clusterRows(clusterId: string): ItemRow[] {
+    return this.opts.catalog.inCluster(clusterId).flatMap((item) =>
+      item.skills.map((skill) => {
         const s = this.model.state(item.id, skill);
-        counts[s.status] += 1;
-        items.push({
+        return {
           item,
           skill,
           status: s.status,
           pKnown: this.model.pKnown(item.id, skill),
           dueAt: s.card ? new Date(s.card.dueAt).toISOString() : null,
           lapses: s.lapses,
-        });
-      }
+        };
+      }),
+    );
+  }
+
+  getLearnerState(): StateSummary {
+    const counts: Record<Status, number> = { unseen: 0, introduced: 0, learning: 0, known: 0, maintained: 0, leech: 0 };
+    let total = 0;
+    for (const c of this.opts.catalog.clusters()) for (const item of this.opts.catalog.inCluster(c.id)) total += item.skills.length;
+    let met = 0;
+    for (const s of this.model.states.values()) {
+      counts[s.status] += 1;
+      met += 1;
     }
+    counts.unseen += Math.max(0, total - met);
     const placement = [...this.model.placement().values()].map((p) => ({
       cluster: p.cluster.id,
       label: p.cluster.label,
       placement: p.placement,
       inferred: p.inferred,
     }));
-    return { counts, items, placement, retention: this.model.trailingRetention(this.clock.now()) };
+    return { counts, placement, retention: this.model.trailingRetention(this.clock.now()) };
   }
 }
 

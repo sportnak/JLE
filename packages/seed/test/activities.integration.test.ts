@@ -186,6 +186,15 @@ describe('a stage-1 session', () => {
     expect(daysWithSokuon).toBeGreaterThan(1);
   });
 
+  it('counts statuses from sparse state the same as listing every row', async () => {
+    const { clock, engine } = await setup();
+    await days(engine, clock, stageOneLearner(engine), 4);
+    const brute = { unseen: 0, introduced: 0, learning: 0, known: 0, maintained: 0, leech: 0 };
+    for (const c of catalog.clusters()) for (const row of engine.clusterRows(c.id)) brute[row.status] += 1;
+    expect(brute.learning + brute.known).toBeGreaterThan(0);
+    expect(engine.getLearnerState().counts).toEqual(brute);
+  });
+
   it('replays to identical state, including the new interaction kinds', async () => {
     const { clock, store, engine } = await setup();
     const knows = stageOneLearner(engine);
