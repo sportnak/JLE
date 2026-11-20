@@ -54,12 +54,33 @@ export interface DictationSentence {
   segments: Segment[];
 }
 
-export interface Catalog {
+/** Static tables a small catalog is built from: kana, the starter list, sound features, authored sentences. */
+export interface CatalogData {
   items: Item[];
   edges: ItemEdge[];
   clusters: Cluster[];
   pairs?: MinimalPair[];
   sentences?: DictationSentence[];
+}
+
+/**
+ * Reference lookups. The engine reaches items only through these, never by scanning every item,
+ * so the same planner runs over a starter list or the full dictionary.
+ */
+export interface Catalog {
+  item(id: string): Item | undefined;
+  /** Clusters (kana groups, word bands), in no particular order. A few dozen, never per item. */
+  clusters(): Cluster[];
+  cluster(id: string): Cluster | undefined;
+  /** Members of one cluster, in their teaching order. */
+  inCluster(clusterId: string): Item[];
+  /** Edges pointing at an item: its components and prerequisites, and confusables. */
+  edgesInto(itemId: string): ItemEdge[];
+  pair(id: string): MinimalPair | undefined;
+  /** Minimal pairs for a sound feature. */
+  pairsFor(itemId: string): MinimalPair[];
+  /** Dictation sentences that contain the item. */
+  sentencesWith(itemId: string): DictationSentence[];
 }
 
 export type Strand = 'input' | 'output' | 'study' | 'fluency';

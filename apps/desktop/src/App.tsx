@@ -1,5 +1,5 @@
 import { Engine } from '@jle/engine';
-import { buildCatalog } from '@jle/seed';
+import { buildCatalog, buildCatalogData } from '@jle/seed';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Home } from './Home';
 import { Progress } from './Progress';
@@ -22,7 +22,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [version, setVersion] = useState(0);
-  const examples = useMemo(() => exampleWords(catalog), []);
+  const examples = useMemo(() => exampleWords(buildCatalogData()), []);
 
   const load = useCallback(async () => {
     try {

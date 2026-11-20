@@ -53,13 +53,13 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
     needs.push({ item, skill, purpose, score, reason, teach });
 
   if (last?.spec.type === 'introduce') {
-    const item = model.items.get(last.spec.itemId);
+    const item = model.item(last.spec.itemId);
     if (item) need(item, primarySkill(item), 'practice', 1000, 'immediate use');
   }
 
   for (const [itemId, acts] of history) {
     if (recentItems.has(itemId)) continue;
-    const item = model.items.get(itemId);
+    const item = model.item(itemId);
     if (!item || !prerequisitesMet(model, item)) continue;
     const lastMiss = acts.findLastIndex(missed);
     const lastIntro = acts.findLastIndex((a: ActivityRecord) => a.spec.type === 'introduce');
@@ -85,7 +85,7 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
 
   for (const s of model.states.values()) {
     if (recentItems.has(s.itemId) || metThisSession.has(s.itemId) || s.status === 'unseen') continue;
-    const item = model.items.get(s.itemId);
+    const item = model.item(s.itemId);
     if (!item) continue;
     if (s.confirmDueAt && new Date(s.confirmDueAt) <= now) {
       need(item, s.skill, 'confirm', 60, 'confirm "I know this"');
@@ -185,7 +185,7 @@ export function sessionBudget(model: LearnerModel, acts: ActivityRecord[], now: 
  * something of another kind to mix in.
  */
 function frontierPicks(model: LearnerModel, exclude: Set<string>): Item[] {
-  const track = new Map(model.catalog.clusters.map((c) => [c.id, c.track]));
+  const track = new Map(model.catalog.clusters().map((c) => [c.id, c.track]));
   const picks = new Map<string, Map<string, Item[]>>();
   for (const item of frontierItems(model, exclude)) {
     const t = track.get(item.cluster) ?? '';
@@ -206,7 +206,7 @@ function frontierPicks(model: LearnerModel, exclude: Set<string>): Item[] {
 /** True until basic hiragana is placed known or mostly learned. */
 export function inKanaStage(model: LearnerModel): boolean {
   if (model.placement().get('hiragana-basic')?.placement === 'known') return false;
-  const basics = model.catalog.items.filter((i) => i.cluster === 'hiragana-basic');
+  const basics = model.catalog.inCluster('hiragana-basic');
   if (basics.length === 0) return false;
   const learned = basics.filter((i) => model.pKnown(i.id, 'read') >= model.config.planner.prerequisiteMin).length;
   return learned / basics.length < 0.8;
@@ -219,7 +219,7 @@ export function inKanaStage(model: LearnerModel): boolean {
 function interleave<C extends Candidate>(model: LearnerModel, acts: ActivityRecord[], candidates: C[]): C[] {
   const kanaStage = inKanaStage(model);
   const kind = (itemId: string) => {
-    const item = model.items.get(itemId);
+    const item = model.item(itemId);
     return kanaStage && item?.type === 'script' ? item.cluster : item?.type;
   };
   const lastThree = acts.slice(-3).map((a) => kind(a.spec.itemId));
@@ -248,19 +248,31 @@ function teachMode(acts: ActivityRecord[], threshold: number): boolean {
 
 export function prerequisitesMet(model: LearnerModel, item: Item): boolean {
   const min = model.config.planner.prerequisiteMin;
-  return model.catalog.edges
-    .filter((e) => e.to === item.id && e.kind !== 'confusable')
+  return model.catalog
+    .edgesInto(item.id)
+    .filter((e) => e.kind !== 'confusable')
     .every((e) => model.pKnown(e.from, 'read') >= min);
 }
 
-export function frontierItems(model: LearnerModel, exclude: Set<string>): Item[] {
-  const clusterOrder = new Map(model.catalog.clusters.map((c) => [c.id, c.order]));
-  return model.catalog.items
-    .filter((i) => !exclude.has(i.id))
-    .filter((i) => i.skills.every((s) => isUntaught(model, i.id, s)))
-    .filter((i) => clusterReady(model, i.cluster))
-    .filter((i) => prerequisitesMet(model, i))
-    .sort((a, b) => (clusterOrder.get(a.cluster) ?? 0) - (clusterOrder.get(b.cluster) ?? 0) || a.order - b.order);
+/**
+ * Untaught items whose cluster and prerequisites are ready, in cluster order. Walks clusters in order and
+ * stops each track after its first `clustersPerTrack` clusters with anything in them, so the cost follows
+ * how far the learner has got rather than the catalog's size.
+ */
+export function frontierItems(model: LearnerModel, exclude: Set<string>, clustersPerTrack = 2): Item[] {
+  const out: Item[] = [];
+  const taken = new Map<string, number>();
+  const clusters = model.catalog.clusters().sort((a, b) => a.order - b.order);
+  for (const cluster of clusters) {
+    if ((taken.get(cluster.track) ?? 0) >= clustersPerTrack || !clusterReady(model, cluster.id)) continue;
+    const found = model.catalog
+      .inCluster(cluster.id)
+      .filter((i) => !exclude.has(i.id) && i.skills.every((s) => isUntaught(model, i.id, s)) && prerequisitesMet(model, i));
+    if (found.length === 0) continue;
+    taken.set(cluster.track, (taken.get(cluster.track) ?? 0) + 1);
+    out.push(...found);
+  }
+  return out;
 }
 
 /**
@@ -275,11 +287,11 @@ function isUntaught(model: LearnerModel, itemId: string, skill: Skill): boolean 
 }
 
 export function clusterReady(model: LearnerModel, clusterId: string): boolean {
-  const cluster = model.catalog.clusters.find((c) => c.id === clusterId);
+  const cluster = model.catalog.cluster(clusterId);
   const placement = model.placement();
   return (cluster?.requires ?? []).every((req) => {
     if (placement.get(req)?.placement === 'known') return true;
-    const items = model.catalog.items.filter((i) => i.cluster === req);
+    const items = model.catalog.inCluster(req);
     const mean = items.reduce((sum, i) => sum + model.pKnown(i.id, 'read'), 0) / Math.max(1, items.length);
     return mean >= model.config.planner.prerequisiteMin;
   });
@@ -287,12 +299,13 @@ export function clusterReady(model: LearnerModel, clusterId: string): boolean {
 
 function nextPlacementProbe(model: LearnerModel, sessionId: string, exclude: Set<string>): Item | null {
   const placement = model.placement();
-  for (const [name, track] of groupByTrack(model.catalog.clusters)) {
+  for (const [name, track] of groupByTrack(model.catalog.clusters())) {
     if (name === 'sound') continue;
     const cluster = nextProbeCluster(track, placement);
     if (!cluster || !clusterReady(model, cluster.id)) continue;
-    const pool = model.catalog.items
-      .filter((i) => i.cluster === cluster.id && !model.firstOutcome.has(i.id) && !model.lastExposure.has(i.id))
+    const pool = model.catalog
+      .inCluster(cluster.id)
+      .filter((i) => !model.firstOutcome.has(i.id) && !model.lastExposure.has(i.id))
       .filter((i) => !exclude.has(i.id));
     if (pool.length === 0) continue;
     const pick = pool[hash(`${sessionId}:${cluster.id}:${placement.get(cluster.id)?.samples ?? 0}`) % pool.length]!;

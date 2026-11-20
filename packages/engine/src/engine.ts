@@ -148,7 +148,7 @@ export class Engine {
 
   /** Expected seconds for an activity, from its type: a base plus a little per character. */
   expectedSeconds(spec: ActivitySpec): number {
-    return typeOf(spec).expectedSeconds(spec, this.model.items.get(spec.itemId), this.config);
+    return typeOf(spec).expectedSeconds(spec, this.model.item(spec.itemId), this.config);
   }
 
   /** The stage, from words Known for recognition. */
@@ -191,7 +191,7 @@ export class Engine {
   view(activityId: string, reason = ''): ActivityView {
     const a = this.model.activities.get(activityId);
     if (!a) throw new Error(`Unknown activity ${activityId}`);
-    const item = this.model.items.get(a.spec.itemId);
+    const item = this.model.item(a.spec.itemId);
     if (!item) throw new Error(`Unknown item ${a.spec.itemId}`);
     return { activityId, spec: a.spec, item, reason };
   }
@@ -256,7 +256,7 @@ export class Engine {
     const corrections = missedActs
       .filter((a) => !seenCorrection.has(a.spec.itemId) && seenCorrection.add(a.spec.itemId))
       .map((a) => {
-        const item = this.model.items.get(a.spec.itemId)!;
+        const item = this.model.item(a.spec.itemId)!;
         const raw = a.answers[0] ?? null;
         const type = a.spec.type;
         if (a.spec.type === 'minimal_pair') return { itemId: item.id, type, given: raw, expected: a.spec.answer };
@@ -300,9 +300,9 @@ export class Engine {
 
   /** Groups a session started now would draw on. No counts: due items are met inside the session, not listed. */
   previewMix(limit = 8): string[] {
-    const labels = new Map(this.opts.catalog.clusters.map((c) => [c.id, c.label]));
+    const labels = new Map(this.opts.catalog.clusters().map((c) => [c.id, c.label]));
     const picks = planCandidates(this.model, '__preview__', this.clock.now(), this.scheduler).slice(0, limit);
-    const groups = picks.map((c) => labels.get(this.model.items.get(c.spec.itemId)?.cluster ?? ''));
+    const groups = picks.map((c) => labels.get(this.model.item(c.spec.itemId)?.cluster ?? ''));
     return [...new Set(groups.filter((g): g is string => !!g))];
   }
 
@@ -317,7 +317,7 @@ export class Engine {
     const isKnown = (m: LearnerModel, item: Item) =>
       item.skills.some((s) => ['known', 'maintained'].includes(m.state(item.id, s).status));
     const added: Partial<Record<ItemType, number>> = {};
-    for (const item of this.opts.catalog.items) {
+    for (const item of seenItems(this.model)) {
       if (isKnown(this.model, item) && !isKnown(before, item)) added[item.type] = (added[item.type] ?? 0) + 1;
     }
     return added;
@@ -336,7 +336,9 @@ export class Engine {
   getLearnerState(): StateSummary {
     const counts: Record<Status, number> = { unseen: 0, introduced: 0, learning: 0, known: 0, maintained: 0, leech: 0 };
     const items: StateSummary['items'] = [];
-    for (const item of this.opts.catalog.items) {
+    // Every item of every cluster, for the progress grids. At dictionary scale this becomes per-cluster (step 1b).
+    const all = this.opts.catalog.clusters().flatMap((c) => this.opts.catalog.inCluster(c.id));
+    for (const item of all) {
       for (const skill of item.skills) {
         const s = this.model.state(item.id, skill);
         counts[s.status] += 1;
@@ -358,4 +360,10 @@ export class Engine {
     }));
     return { counts, items, placement, retention: this.model.trailingRetention(this.clock.now()) };
   }
+}
+
+/** Items the learner has any state for. Learner state is sparse, so this follows what has been met. */
+function seenItems(model: LearnerModel): Item[] {
+  const ids = new Set([...model.states.values()].map((s) => s.itemId));
+  return [...ids].map((id) => model.item(id)).filter((i): i is Item => !!i);
 }

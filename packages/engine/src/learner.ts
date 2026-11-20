@@ -64,7 +64,6 @@ const key = (itemId: string, skill: Skill) => `${itemId}|${skill}`;
  * live events and for replay, so state always equals derive(log, config).
  */
 export class LearnerModel {
-  readonly items: Map<string, Item>;
   readonly states = new Map<string, ItemSkillState>();
   readonly activities = new Map<string, ActivityRecord>();
   readonly sessions = new Map<string, SessionRecord>();
@@ -81,8 +80,10 @@ export class LearnerModel {
     readonly config: EngineConfig,
     private readonly scheduler: Scheduler,
     private readonly hints: ReplayHints,
-  ) {
-    this.items = new Map(catalog.items.map((i) => [i.id, i]));
+  ) {}
+
+  item(id: string): Item | undefined {
+    return this.catalog.item(id);
   }
 
   state(itemId: string, skill: Skill): ItemSkillState {
@@ -94,7 +95,7 @@ export class LearnerModel {
   }
 
   prior(itemId: string): number {
-    const item = this.items.get(itemId);
+    const item = this.catalog.item(itemId);
     return priorFor(item ? this.placement().get(item.cluster) : undefined, this.config);
   }
 
@@ -106,11 +107,11 @@ export class LearnerModel {
     if (!this.placementCache) {
       const byCluster = new Map<string, boolean[]>();
       for (const [itemId, ok] of this.firstOutcome) {
-        const c = this.items.get(itemId)?.cluster;
+        const c = this.catalog.item(itemId)?.cluster;
         if (!c) continue;
         byCluster.set(c, [...(byCluster.get(c) ?? []), ok]);
       }
-      this.placementCache = computePlacement(this.catalog.clusters, byCluster, this.config);
+      this.placementCache = computePlacement(this.catalog.clusters(), byCluster, this.config);
     }
     return this.placementCache;
   }
@@ -187,7 +188,7 @@ export class LearnerModel {
       statusBefore: skill ? this.state(spec.itemId, skill).status : null,
     });
     if (spec.type === 'introduce') {
-      const item = this.items.get(spec.itemId);
+      const item = this.catalog.item(spec.itemId);
       for (const skill of item?.skills ?? []) {
         const s = this.state(spec.itemId, skill);
         if (s.status === 'unseen') this.states.set(key(spec.itemId, skill), { ...s, status: 'introduced' });
@@ -208,7 +209,7 @@ export class LearnerModel {
   private gradeContext(a: ActivityRecord, e: AttemptEvent): GradeContext {
     return {
       config: this.config,
-      item: (id) => this.items.get(id),
+      item: (id) => this.catalog.item(id),
       state: (itemId, skill) => this.state(itemId, skill),
       disputed: this.hints.disputed.has(a.id) && this.hints.lastAnswer.get(a.id) === e.id,
       emit: (item, skill, direction, base, latencyMs, opts) =>
@@ -220,7 +221,7 @@ export class LearnerModel {
   }
 
   private onOverride(e: Extract<InteractionEvent, { kind: 'override' }>) {
-    const item = this.items.get(e.itemId);
+    const item = this.catalog.item(e.itemId);
     if (!item) return;
     const at = new Date(e.at);
     const confirmDueAt = new Date(at.getTime() + this.config.planner.confirmAfterDays * 86_400_000).toISOString();
@@ -328,7 +329,7 @@ export class LearnerModel {
   knownWords(): number {
     let n = 0;
     for (const s of this.states.values()) {
-      if (s.skill === 'read' && (s.status === 'known' || s.status === 'maintained') && this.items.get(s.itemId)?.type === 'vocab') n++;
+      if (s.skill === 'read' && (s.status === 'known' || s.status === 'maintained') && this.catalog.item(s.itemId)?.type === 'vocab') n++;
     }
     return n;
   }

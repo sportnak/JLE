@@ -1,4 +1,4 @@
-import type { Catalog, Cluster, DictationSentence, Item, ItemEdge, MinimalPair } from '@jle/engine';
+import { memoryCatalog, type Catalog, type CatalogData, type Cluster, type DictationSentence, type Item, type ItemEdge, type MinimalPair } from '@jle/engine';
 import { FEATURES, PAIRS, pairId } from '@jle/sounds';
 import { toHiragana } from 'wanakana';
 import { kanaCatalog, kanaId, moraeOf } from './kana';
@@ -7,7 +7,23 @@ import { STARTER_POS, STARTER_VOCAB } from './vocab';
 
 const BAND_SIZE = 20;
 
+/** The starter catalog, indexed. Word → kana edges are computed from each word's reading when asked for. */
 export function buildCatalog(): Catalog {
+  const data = buildCatalogData();
+  const kanaIds = new Set(data.items.filter((i) => i.type === 'script').map((i) => i.id));
+  return memoryCatalog(data, (item) => (item.type === 'vocab' ? componentEdges(item, kanaIds) : []));
+}
+
+/** Kana in a word's reading, as component edges into the word. */
+export function componentEdges(word: Item, kanaIds: Set<string>): ItemEdge[] {
+  return [...new Set(moraeOf(word.reading))]
+    .map(kanaId)
+    .filter((from) => kanaIds.has(from))
+    .map((from) => ({ from, to: word.id, kind: 'component' as const }));
+}
+
+/** The static tables behind the starter catalog. Stored edges are the kana's own; word edges are computed. */
+export function buildCatalogData(): CatalogData {
   const kana = kanaCatalog();
   const kanaIds = new Set(kana.items.map((i) => i.id));
   const items: Item[] = [...kana.items];
@@ -40,10 +56,6 @@ export function buildCatalog(): Catalog {
       tags: { jlpt: 'N5', freq: i + 1 },
       ...(STARTER_POS[written] ? { pos: STARTER_POS[written] } : {}),
     });
-    for (const mora of new Set(moraeOf(reading))) {
-      const from = kanaId(mora);
-      if (kanaIds.has(from)) edges.push({ from, to: id, kind: 'component' });
-    }
   });
 
   const sounds = soundCatalog(kanaIds);

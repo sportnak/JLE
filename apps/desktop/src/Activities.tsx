@@ -15,7 +15,7 @@ type PairSpec = Extract<ActivitySpec, { type: 'minimal_pair' }>;
 type DictationSpec = Extract<ActivitySpec, { type: 'dictation' }>;
 
 const pairOf = (engine: Engine, id: string | undefined): MinimalPair | undefined =>
-  engine.learner.catalog.pairs?.find((p) => p.id === id);
+  id ? engine.learner.catalog.pair(id) : undefined;
 
 const sentenceReading = (segments: Segment[]) => segments.map((s) => s.reading).join('');
 

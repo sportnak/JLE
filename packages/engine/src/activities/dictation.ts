@@ -15,9 +15,7 @@ export function readyForDictation(model: LearnerModel, itemId: string): boolean 
 const tracked = (s: DictationSentence) => [...new Set(s.segments.flatMap((g) => (g.itemId ? [g.itemId] : [])))];
 
 function sentenceFor(model: LearnerModel, sessionId: string, itemId: string): DictationSentence | null {
-  const usable = (model.catalog.sentences ?? []).filter(
-    (s) => tracked(s).includes(itemId) && tracked(s).every((id) => readyForDictation(model, id)),
-  );
+  const usable = model.catalog.sentencesWith(itemId).filter((s) => tracked(s).every((id) => readyForDictation(model, id)));
   if (usable.length === 0) return null;
   const uses = new Map<string, number>();
   for (const a of model.activities.values()) {
@@ -25,6 +23,16 @@ function sentenceFor(model: LearnerModel, sessionId: string, itemId: string): Di
   }
   const rank = (s: DictationSentence) => (uses.get(s.id) ?? 0) * 1e10 + hash(`${sessionId}:${itemId}:${s.id}`);
   return usable.sort((x, y) => rank(x) - rank(y))[0]!;
+}
+
+/** Words with a review card for reading or writing, in teaching order. Drawn from learner state, which is sparse. */
+function taughtWords(model: LearnerModel): Item[] {
+  const ids = new Set<string>();
+  for (const s of model.states.values()) if (s.card && (s.skill === 'read' || s.skill === 'write')) ids.add(s.itemId);
+  return [...ids]
+    .map((id) => model.item(id))
+    .filter((i): i is Item => i?.type === 'vocab')
+    .sort((a, b) => a.order - b.order);
 }
 
 function spec(model: LearnerModel, sessionId: string, item: Item, purpose: Purpose): Spec | null {
@@ -56,8 +64,8 @@ export const dictation: ActivityType<Spec> = {
       return s ? [{ spec: s, score: n.score, reason: n.reason, order }] : [];
     });
     // Words you read well but have never been asked to hear.
-    const fresh = model.catalog.items
-      .filter((i) => i.type === 'vocab' && i.skills.includes('listen'))
+    const fresh = taughtWords(model)
+      .filter((i) => i.skills.includes('listen'))
       .filter((i) => !ctx.metThisSession.has(i.id) && !ctx.recentItems.has(i.id))
       .filter((i) => !model.state(i.id, 'listen').card && readyForDictation(model, i.id));
     let k = 0;

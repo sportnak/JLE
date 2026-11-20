@@ -1,4 +1,4 @@
-import type { Catalog, Item, Status } from '@jle/engine';
+import type { CatalogData, Item, Status } from '@jle/engine';
 import { useState, type ReactNode } from 'react';
 import { speak } from './host';
 
@@ -111,7 +111,7 @@ export function PlayButton({ text, label = 'Play' }: { text: string; label?: str
 }
 
 /** First starter word whose reading uses the kana, so a sound is anchored to a word, never to romaji. */
-export function exampleWords(catalog: Catalog): Map<string, Item> {
+export function exampleWords(catalog: CatalogData): Map<string, Item> {
   const words = catalog.items.filter((i) => i.type === 'vocab').sort((a, b) => a.order - b.order);
   const map = new Map<string, Item>();
   for (const kana of catalog.items.filter((i) => i.type === 'script')) {

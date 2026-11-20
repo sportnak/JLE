@@ -9,9 +9,7 @@ type Spec = Extract<ActivitySpec, { type: 'minimal_pair' }>;
 /** Pairs for a sound feature whose kana the learner can already read. */
 export function eligiblePairs(model: LearnerModel, itemId: string): MinimalPair[] {
   const min = model.config.planner.prerequisiteMin;
-  return (model.catalog.pairs ?? []).filter(
-    (p) => p.itemId === itemId && p.kana.every((k) => model.pKnown(k, 'read') >= min),
-  );
+  return model.catalog.pairsFor(itemId).filter((p) => p.kana.every((k) => model.pKnown(k, 'read') >= min));
 }
 
 function pairSpec(model: LearnerModel, sessionId: string, itemId: string, purpose: Spec['purpose']): Spec | null {

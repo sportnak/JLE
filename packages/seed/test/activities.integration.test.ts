@@ -18,7 +18,7 @@ import { createScheduler } from '../../engine/src/model';
 import { buildCatalog } from '../src/index';
 
 const catalog = buildCatalog();
-const item = (id: string) => catalog.items.find((i) => i.id === id)!;
+const item = (id: string) => catalog.item(id)!;
 
 class FakeClock implements Clock {
   t = new Date('2026-11-01T09:00:00Z').getTime();

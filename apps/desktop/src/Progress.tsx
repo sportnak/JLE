@@ -25,7 +25,7 @@ export function Progress({ engine, onChange }: { engine: Engine; onChange: () =>
   const totalMinutes = Object.values(minutes).reduce((a, b) => a + b, 0);
   const added = engine.knownAddedSince(week);
   const comingUp = engine.comingUp(3);
-  const labels = new Map(engine.learner.catalog.clusters.map((c) => [c.id, c.label]));
+  const labels = new Map(engine.learner.catalog.clusters().map((c) => [c.id, c.label]));
 
   return (
     <section className="page">

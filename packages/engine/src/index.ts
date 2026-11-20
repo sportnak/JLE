@@ -2,6 +2,7 @@ export * from './types';
 export * from './config';
 export * from './ports';
 export * from './engine';
+export { memoryCatalog } from './catalog';
 export { grade, gradeDictation, gradeMinimalPair, normalizeEnglish, normalizeReading, GRADER_VERSION } from './grading';
 export { derive, LearnerModel } from './learner';
 export { planCandidates, currentStage } from './planner';

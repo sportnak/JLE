@@ -381,7 +381,7 @@ function Recap({ recap, engine, session, onDone, onKeepGoing }: RecapProps) {
   useEnter(onDone);
   const [flagging, setFlagging] = useState(false);
   const [flagged, setFlagged] = useState<Set<string>>(new Set());
-  const item = (id: string) => engine.learner.items.get(id)!;
+  const item = (id: string) => engine.learner.item(id)!;
   const corrections = recap.corrections.slice(0, 3);
   const newItems = recap.newItems.map(item);
   const changes = recap.changes.filter((c, i, all) => all.findIndex((o) => o.itemId === c.itemId) === i);

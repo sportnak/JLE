@@ -68,7 +68,7 @@ describe('cold start', () => {
   it('places someone who knows all kana and the first 60 words', async () => {
     const { clock, engine } = await setup();
     const knows = (id: string) => {
-      const item = catalog.items.find((i) => i.id === id)!;
+      const item = catalog.item(id)!;
       return item.type === 'script' || (item.tags.freq ?? 999) <= 60;
     };
     await runSession(engine, clock, knows, 20);
@@ -185,7 +185,7 @@ describe('no loops (regression: a session that re-asked basics and dropped misse
     const missing = new Set(['kana:ぺ', 'kana:ぽ']);
     // Knows basic and voiced hiragana except ぺ and ぽ, and the first five words; learns anything once shown.
     const knowsAtStart = (id: string) => {
-      const item = catalog.items.find((i) => i.id === id)!;
+      const item = catalog.item(id)!;
       if (missing.has(id)) return false;
       return item.type === 'script' ? item.cluster.startsWith('hiragana') : (item.tags.freq ?? 999) <= 5;
     };
@@ -206,8 +206,8 @@ describe('no loops (regression: a session that re-asked basics and dropped misse
     for (const [itemId, list] of byItem) {
       const firstMiss = list.findIndex((a) => a.outcome === 'wrong' || a.outcome === 'dont_know');
       if (firstMiss < 0) continue;
-      const item = catalog.items.find((i) => i.id === itemId)!;
-      const prereqsKnown = catalog.edges.filter((e) => e.to === itemId).every((e) => knowsAtStart(e.from));
+      const item = catalog.item(itemId)!;
+      const prereqsKnown = catalog.edgesInto(itemId).every((e) => knowsAtStart(e.from));
       if (!prereqsKnown || item.type !== 'script') continue;
       expect(list.length, `${itemId} was missed and never came back`).toBeGreaterThan(firstMiss + 1);
     }
@@ -219,7 +219,7 @@ describe('no loops (regression: a session that re-asked basics and dropped misse
     let run = 0;
     let prev = '';
     for (const a of acts.filter((x) => x.spec.type === 'introduce' || x.spec.purpose !== 'placement')) {
-      const type = catalog.items.find((i) => i.id === a.spec.itemId)!.type;
+      const type = catalog.item(a.spec.itemId)!.type;
       run = type === prev ? run + 1 : 1;
       prev = type;
       expect(run, `run of ${type} at ${a.spec.itemId}`).toBeLessThanOrEqual(4);
