@@ -1,6 +1,6 @@
 # Handoff: where the Japanese Learning Engine stands
 
-Last updated 2026-11-20 (step 1c merged; first part of 1b done). Read this first when picking the project up on a new machine or in a new session. Read `docs/architecture.md` next: it is the design, and this file is the status.
+Last updated 2026-11-20 (step 1b: dictionary, Sudachi and the activity demo page). Read this first when picking the project up on a new machine or in a new session. Read `docs/architecture.md` next: it is the design, and this file is the status.
 
 ## The documents
 
@@ -25,7 +25,7 @@ All three are Claude artifacts, private to the owner's Claude account. Sign in t
 |---|---|---|
 | 1 | Event log and replay, evidence rules, FSRS-7, placement, planner (rests correct items, teaches misses back, adaptive intake, interleaving, early end), kana and a 130-word starter list, closed-answer grading including inflected forms, credited session clock, Tauri app, SQLite log, VOICEVOX voice with picker and speed, design system, font choice, in-lesson settings | **Done** |
 | 1c | Activity registry, stage-based mix with a closed-exercise cap, minimal-pair listening, dictation, `packages/sounds` | **Done.** Every screen checked at phone and desktop width. Also fixed: items missed again after teaching were never served again; after a study-heavy week, missed dictations filled sessions (strand balance now blends in the current session). |
-| 1b | Full JMdict and KANJIDIC2 in `reference.sqlite`, a `Catalog` port, Sudachi tokenizer, sparse state at dictionary scale, frequency-band placement; retires the starter list | **Part done.** The `Catalog` port is in: the engine reaches items through lookups, word → kana edges are computed, and progress counts come from sparse state. A simulated learner gives a byte-identical log before and after. The rest is **blocked** on decisions 1 and 2 below. |
+| 1b | Full JMdict and KANJIDIC2 in `reference.sqlite`, a `Catalog` port, Sudachi tokenizer, sparse state at dictionary scale, frequency-band placement; retires the starter list | **Done except kanji items.** `packages/reference` builds `reference.sqlite` (JMdict, KANJIDIC2, wordfreq) and exports the app's word list: the 130 starter words, then the 20,000 most frequent content words in bands of 100. Old `vocab:` ids map to `jmdict:` ids on replay. Placement probes far down the list but only teaches near the frontier. Sudachi runs in the host behind `analyze`. Kanji items and word → kanji edges wait until kanji are taught. |
 | 2 | Your own text (`addContent`) first, then generated reading, hinge questions, contrast choice, transformation, highlighting, sentence mining, grammar data and approval, model-call logging | Not started |
 | 3 | Free writing, tutor conversation, situation prompts, role-play, retelling, error hunt | Not started |
 | 4 | Fast track, disguised probes, full cold start, cluster advance | Not started |
@@ -33,17 +33,15 @@ All three are Claude artifacts, private to the owner's Claude account. Sign in t
 
 ## Open decisions
 
-Step 2's activities are stage-2 activities, and stage 2 starts at 300 Known words; the starter list has 130. So step 2 can't reach a learner until 1b replaces the starter list, which makes decisions 1 and 2 the critical path.
-
-1. **Item granularity:** one vocabulary item per JMdict entry (recommended: the tokenizer gives lemmas, not senses) or per sense?
-2. **Downloads for 1b:** JMdict, KANJIDIC2, a Sudachi dictionary, and which word-frequency list. The list's licence matters if the app is ever distributed.
-3. **Grammar approval:** who approves fact sheets, and where. Recommended: files in this repo, approved through review by someone who reads Japanese well.
-4. **Grading model:** recommended to start on `claude-sonnet-5-5` and test a smaller model against a labelled set before switching.
-5. **Distribution:** personal only, or might it ship? This decides the frequency-list licence and whether the API key eventually needs a backend.
-6. **Genki in parallel:** should the planner follow the current textbook chapter?
-7. **The 54 PRD suggestion cards** (29 from the amendment, 25 from Activities): accept or reject them in the PRD.
+1. **Grammar approval:** who approves fact sheets, and where. Recommended: files in this repo, approved through review by someone who reads Japanese well.
+2. **Grading model:** recommended to start on `claude-sonnet-5-5` and test a smaller model against a labelled set before switching.
+3. **Distribution:** personal only, or might it ship? This decides the frequency-list licence and whether the API key eventually needs a backend.
+4. **Genki in parallel:** should the planner follow the current textbook chapter?
+5. **The 54 PRD suggestion cards** (29 from the amendment, 25 from Activities): accept or reject them in the PRD.
 
 ## Decisions made (do not reopen without a reason)
+
+- **Items from the dictionary (2026-11-20):** one vocabulary item per JMdict entry, id `jmdict:<ent_seq>`. Frequency from wordfreq (CC BY-SA 4.0). The engine loads a generated word list (top 20,000 content words) into memory rather than querying the database; rarer words will come from the host. The starter list's `vocab:<written>` ids map to entries on replay; the log is never rewritten.
 
 - **Stack:** Tauri 2 with a React and TypeScript UI; the engine is a pure TypeScript library; the Rust host does all I/O. Desktop first, mobile from the same code later.
 - **LLM:** the Claude API with the owner's key, called from the Rust host, for five jobs only (generate, grade free writing, tutor, explain from approved fact sheets, review). Closed answers are graded in code. Learner state never lives in the model, and the known-word list is never sent to it.
@@ -85,10 +83,6 @@ cd apps/desktop && pnpm tauri dev
 
 ## Briefs to start the next work
 
-**Step 1b, once decisions 1 and 2 are made.** Follow `docs/architecture.md` §4.1 (Catalog port), §5.2 (reference database), §6.1 (Sudachi) and §11:
-- Build `packages/reference` to produce `reference.sqlite` from JMdict, KANJIDIC2 and the chosen frequency list.
-- Implement `Catalog` over `reference.sqlite` (the in-memory one is `memoryCatalog` in `packages/engine/src/catalog.ts`). Word → kanji edges join the computed word → kana ones.
-- Page `Engine.clusterRows` and the progress table for dictionary-sized bands.
-- Replace the starter-word bands with frequency-band placement.
-- Add Sudachi in the Rust host.
-- Keep the existing tests passing and the real log replaying.
+**Rebuilding the word list.** `pnpm --filter @jle/reference fetch`, then `build:db`, then `node packages/reference/scripts/slice.ts` (Node 24). The result, `packages/seed/src/data/words.json`, is committed so the app builds without the downloads.
+
+**Step 2.** Start with `addContent`: tokenize your text with `analyze` (host), map tokens to items by dictionary form and reading (`byLemma` over `reference.sqlite` in the host, then add the item to the in-memory catalog), and offer reading with lookups. See `docs/architecture.md` §6.

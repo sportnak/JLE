@@ -57,10 +57,15 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
     if (item) need(item, primarySkill(item), 'practice', 1000, 'immediate use');
   }
 
+  let frontier: Set<string> | undefined;
   for (const [itemId, acts] of history) {
     if (recentItems.has(itemId)) continue;
     const item = model.item(itemId);
     if (!item || !prerequisitesMet(model, item)) continue;
+    // In the open-ended tracks (words, kanji) a placement probe beyond the frontier only places the learner: a
+    // rare word is not taught for being missed. Kana and sound features are small closed sets, taught back as before.
+    const openEnded = item.type === 'vocab' || item.type === 'kanji';
+    if (openEnded && acts.every(placementOnly) && !(frontier ??= frontierClusters(model)).has(item.cluster)) continue;
     const lastMiss = acts.findLastIndex(missed);
     const lastIntro = acts.findLastIndex((a: ActivityRecord) => a.spec.type === 'introduce');
     const lastRight = acts.findLastIndex(right);
@@ -120,6 +125,8 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
     .sort((a, b) => b.score - a.score || a.order - b.order)
     .map(({ order: _order, ...c }) => c);
 }
+
+const placementOnly = (a: ActivityRecord) => a.spec.type !== 'introduce' && a.spec.purpose === 'placement';
 
 type OrderedCandidate = Candidate & { order: number };
 
@@ -260,7 +267,16 @@ export function prerequisitesMet(model: LearnerModel, item: Item): boolean {
  * how far the learner has got rather than the catalog's size.
  */
 export function frontierItems(model: LearnerModel, exclude: Set<string>, clustersPerTrack = 2): Item[] {
-  const out: Item[] = [];
+  return frontierWalk(model, exclude, clustersPerTrack).flatMap(([, items]) => items);
+}
+
+/** The clusters new items come from now, per track the first `clustersPerTrack` ready ones with untaught items. */
+export function frontierClusters(model: LearnerModel, clustersPerTrack = 2): Set<string> {
+  return new Set(frontierWalk(model, new Set(), clustersPerTrack).map(([id]) => id));
+}
+
+function frontierWalk(model: LearnerModel, exclude: Set<string>, clustersPerTrack: number): [string, Item[]][] {
+  const out: [string, Item[]][] = [];
   const taken = new Map<string, number>();
   const clusters = model.catalog.clusters().sort((a, b) => a.order - b.order);
   for (const cluster of clusters) {
@@ -270,7 +286,7 @@ export function frontierItems(model: LearnerModel, exclude: Set<string>, cluster
       .filter((i) => !exclude.has(i.id) && i.skills.every((s) => isUntaught(model, i.id, s)) && prerequisitesMet(model, i));
     if (found.length === 0) continue;
     taken.set(cluster.track, (taken.get(cluster.track) ?? 0) + 1);
-    out.push(...found);
+    out.push([cluster.id, found]);
   }
   return out;
 }

@@ -89,6 +89,7 @@ interface Ports {
 
 interface Catalog {                    // built (packages/engine/src/types.ts)
   item(id: string): Item | undefined;
+  resolve(id: string): string;         // retired id (vocab:私) → current id (jmdict:1311110); applied on replay
   clusters(): Cluster[];               // kana groups and word bands; a few dozen
   cluster(id: string): Cluster | undefined;
   inCluster(clusterId: string): Item[];
@@ -103,7 +104,11 @@ interface Catalog {                    // built (packages/engine/src/types.ts)
 }
 ```
 
-The engine reaches the catalog only through these lookups (`memoryCatalog` implements them over the starter tables); step 1b adds an implementation over `reference.sqlite`. Component edges (word → kana, word → kanji) are computed from the reading and written form when asked for, never stored for the whole dictionary.
+The engine reaches the catalog only through these lookups. Component edges (word → kana, word → kanji) are computed from the reading and written form when asked for, never stored for the whole dictionary.
+
+**How the engine sees the dictionary (decided 2026-11-20).** The engine is synchronous and runs in the window; `reference.sqlite` belongs to the host. So the engine does not query the database. `packages/reference` exports a word list from it at build time (`packages/seed/src/data/words.json`: the 20,000 most frequent content words plus the starter words, about 1.9 MB), and `memoryCatalog` indexes it at startup. Particles, auxiliaries and the copula are left out: they are grammar, taught through grammar points. Rarer words met in your own text (step 2) will come from the host through `byLemma` and be added to the in-memory catalog. Items are one per JMdict entry, with id `jmdict:<ent_seq>`.
+
+**Retired ids.** The starter list named words `vocab:<written>`. The log is append-only, so it is never rewritten: the catalog carries an alias table (starter id → entry id) and every event goes through `Catalog.resolve` when it is applied, live or on replay. The starter words keep the written form and meanings they were taught with; the dictionary's glosses are accepted as well.
 
 ### 4.2 Operations
 
@@ -343,7 +348,7 @@ With no network or no key, the engine still serves retrieval prompts, kana study
 | Step | Contents | Status |
 |---|---|---|
 | 1 | Event log, evidence, FSRS, replay, placement, planner, kana, retrieval prompts, Tauri shell, SQLite log, design system | Built, with a hand-written 130-word starter list |
-| 1b | `reference.sqlite` from JMdict and KANJIDIC2, `Catalog` port, sparse state at scale, Sudachi in the host, frequency-band placement. Retire the starter list | `Catalog` port done; the rest waits on §14 questions 1 and 3 |
+| 1b | `reference.sqlite` from JMdict and KANJIDIC2, `Catalog` port, sparse state at scale, Sudachi in the host, frequency-band placement. Retire the starter list | Built. The 130 starter words stay as the first bands, then 200 bands of 100 by frequency. Kanji items and word → kanji edges wait until kanji are taught |
 | 1c | Activity registry, stage-based mix, interleaving, VOICEVOX lesson voice. Minimal pairs and dictation, which stage 1 relies on | Built |
 | 2 | `addContent` and reading your own text first, then generated reading through the pipeline, hinge questions, embedded review. Contrast choice, transformation, input highlighting, sentence mining. Grammar data and the approval path, `llm_call` logging | |
 | 3 | Free writing with the grading contract, then tutor conversation, situation prompts, task role-play, retelling, error hunt from your own error records | |
@@ -371,11 +376,11 @@ With no network or no key, the engine still serves retrieval prompts, kana study
 
 ## 14. Open questions
 
-1. **Item granularity:** one item per JMdict entry (recommended: the tokenizer gives lemmas, not senses) or per sense, as the PRD says?
-2. **Grammar approval:** who approves fact sheets, and where: files in this repo approved through PR review (recommended), or an in-app review screen? The approver needs to read Japanese well enough to catch a wrong fact sheet.
-3. **Downloads:** JMdict, KANJIDIC2, a Sudachi dictionary, and which frequency list.
-4. **Distribution:** personal-only, or might it ship? This decides the frequency-list license and whether the key eventually needs a backend.
-5. **Genki in parallel:** should the planner pin the frontier to your current chapter?
-6. **Evidence strengths for the new activities:** transformation, contrast choice, error found and fixed, minimal-pair choice, dictation, self-explanation, role-play goal reached, situation-prompt target used. Proposed in the PRD as starting values to tune.
+1. **Grammar approval:** who approves fact sheets, and where: files in this repo approved through PR review (recommended), or an in-app review screen? The approver needs to read Japanese well enough to catch a wrong fact sheet.
+2. **Distribution:** personal-only, or might it ship? This decides the frequency-list license and whether the key eventually needs a backend.
+3. **Genki in parallel:** should the planner pin the frontier to your current chapter?
+4. **Evidence strengths for the new activities:** transformation, contrast choice, error found and fixed, minimal-pair choice, dictation, self-explanation, role-play goal reached, situation-prompt target used. Proposed in the PRD as starting values to tune.
+
+Decided 2026-11-20: one item per JMdict entry; frequency from wordfreq (CC BY-SA 4.0); Sudachi core dictionary; the engine loads the top words in memory; old ids map to entries on replay.
 
 Decided 2026-11-19: kana are taught before they are attempted; interleaving is by item type with the kana stage exempt; vowel length and small っ are tracked, pitch is not; timed retelling waits for voice (it's a stage-3 activity anyway).

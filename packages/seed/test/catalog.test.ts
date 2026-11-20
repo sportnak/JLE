@@ -23,9 +23,10 @@ describe('seed catalog', () => {
     }
   });
 
-  it('links every vocabulary word to its kana', () => {
+  it('links every vocabulary word to the kana it uses', () => {
+    // Extended katakana (ファ, デュ) are not taught yet, so they are not prerequisites.
     for (const item of data.items.filter((i) => i.type === 'vocab')) {
-      const parts = new Set(moraeOf(item.reading));
+      const parts = new Set(moraeOf(item.reading).filter((m) => catalog.item(`kana:${m}`)));
       const linked = catalog.edgesInto(item.id).map((e) => e.from.replace('kana:', ''));
       expect(new Set(linked), item.written).toEqual(parts);
     }

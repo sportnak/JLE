@@ -88,7 +88,7 @@ export interface ItemRow {
 export interface StateSummary {
   /** Item-skill rows by status. Only met items have state, so Unseen is the remainder. */
   counts: Record<Status, number>;
-  placement: { cluster: string; label: string; placement: string; inferred: boolean }[];
+  placement: { cluster: string; track: string; label: string; placement: string; inferred: boolean }[];
   retention: { rate: number; n: number };
 }
 
@@ -380,6 +380,7 @@ export class Engine {
     counts.unseen += Math.max(0, total - met);
     const placement = [...this.model.placement().values()].map((p) => ({
       cluster: p.cluster.id,
+      track: p.cluster.track,
       label: p.cluster.label,
       placement: p.placement,
       inferred: p.inferred,

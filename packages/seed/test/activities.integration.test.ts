@@ -96,7 +96,7 @@ function stageOneLearner(engine: Engine) {
     const it = item(id);
     if (engine.learner.lastExposure.has(id) && it.type !== 'sound') return true;
     if (it.type === 'script') return it.cluster.startsWith('hiragana');
-    if (it.type === 'vocab') return (it.tags.freq ?? 999) <= 60;
+    if (it.type === 'vocab') return it.order < 1000 + 60;
     return id === 'sound:vowel-length' || engine.learner.lastExposure.has(id);
   };
 }
@@ -333,7 +333,7 @@ describe('closed-exercise cap', () => {
     expectedSeconds: () => 60,
     skillOf: () => null,
     candidates: (ctx: { needs: unknown[] }) => [
-      { spec: { type: 'open_reading', itemId: 'vocab:本' }, score: 1, reason: 'open', order: ctx.needs.length },
+      { spec: { type: 'open_reading', itemId: catalog.resolve('vocab:本') }, score: 1, reason: 'open', order: ctx.needs.length },
     ],
   };
 
@@ -396,7 +396,7 @@ describe('retired item ids', () => {
       const { sessionId, next } = await engine.startSession(10);
       let n = next;
       while (!n.done) {
-        const input = answerFor(n.activity, (id) => id.startsWith('kana:') || id === 'vocab:私' || id === 'vocab:学生');
+        const input = answerFor(n.activity, (id) => id.startsWith('kana:') || id === catalog.resolve('vocab:私') || id === catalog.resolve('vocab:学生'));
         if (input) await engine.recordInteraction(n.activity.activityId, input);
         await engine.completeActivity(n.activity.activityId);
         clock.advance(20_000);

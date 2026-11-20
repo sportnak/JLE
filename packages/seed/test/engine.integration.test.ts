@@ -69,7 +69,7 @@ describe('cold start', () => {
     const { clock, engine } = await setup();
     const knows = (id: string) => {
       const item = catalog.item(id)!;
-      return item.type === 'script' || (item.tags.freq ?? 999) <= 60;
+      return item.type === 'script' || (item.type === 'vocab' && item.order < 1000 + 60);
     };
     await runSession(engine, clock, knows, 20);
     const placement = Object.fromEntries(engine.getLearnerState().placement.map((p) => [p.cluster, p.placement]));
@@ -137,8 +137,8 @@ describe('dispute and flag', () => {
 describe('"I know this"', () => {
   it('counts as strong evidence and schedules a confirming probe', async () => {
     const { clock, engine } = await setup();
-    await engine.overrideItem('vocab:食べる');
-    const s = engine.learner.state('vocab:食べる', 'write');
+    await engine.overrideItem(catalog.resolve('vocab:食べる'));
+    const s = engine.learner.state(catalog.resolve('vocab:食べる'), 'write');
     expect(s.pKnown).toBeGreaterThan(0.6);
     expect(s.status).not.toBe('known');
     clock.advance(86_400_000 + 1000);
@@ -152,7 +152,7 @@ describe('"I know this"', () => {
       clock.advance(5_000);
       n = await engine.nextActivity(started.sessionId);
     }
-    expect(specs).toContainEqual(expect.objectContaining({ itemId: 'vocab:食べる', purpose: 'confirm' }));
+    expect(specs).toContainEqual(expect.objectContaining({ itemId: catalog.resolve('vocab:食べる'), purpose: 'confirm' }));
   });
 });
 
@@ -187,7 +187,7 @@ describe('no loops (regression: a session that re-asked basics and dropped misse
     const knowsAtStart = (id: string) => {
       const item = catalog.item(id)!;
       if (missing.has(id)) return false;
-      return item.type === 'script' ? item.cluster.startsWith('hiragana') : (item.tags.freq ?? 999) <= 5;
+      return item.type === 'script' ? item.cluster.startsWith('hiragana') : item.order < 1000 + 5;
     };
     const knows = (id: string) => knowsAtStart(id) || engine.learner.lastExposure.has(id);
     const { seen } = await runSession(engine, clock, knows, 10);
@@ -215,11 +215,17 @@ describe('no loops (regression: a session that re-asked basics and dropped misse
     expect(new Set(acts.map((a) => a.spec.itemId)).size, 'covered new ground').toBeGreaterThanOrEqual(15);
 
     // Interleaving: outside placement, no long runs of one item type (an introduction and its
-    // immediate use may push a run to four).
+    // immediate use may push a run to four). Placement prompts don't count toward a run, but one of
+    // another type still breaks it, as it does on screen.
     let run = 0;
     let prev = '';
-    for (const a of acts.filter((x) => x.spec.type === 'introduce' || x.spec.purpose !== 'placement')) {
+    for (const a of acts) {
       const type = catalog.item(a.spec.itemId)!.type;
+      if (a.spec.type !== 'introduce' && a.spec.purpose === 'placement') {
+        if (type !== prev) run = 0;
+        prev = type;
+        continue;
+      }
       run = type === prev ? run + 1 : 1;
       prev = type;
       expect(run, `run of ${type} at ${a.spec.itemId}`).toBeLessThanOrEqual(4);
@@ -264,5 +270,21 @@ describe('session clock', () => {
     const before = engine.sessionClock(sessionId);
     engine.rebuild();
     expect(engine.sessionClock(sessionId)).toEqual(before);
+  });
+});
+
+describe('placement over the dictionary', () => {
+  it('probes far down the frequency list but teaches only near the frontier', async () => {
+    const { clock, engine } = await setup();
+    const knows = (id: string) => {
+      const item = catalog.item(id)!;
+      return item.type === 'script' ? item.cluster.startsWith('hiragana') : item.type === 'vocab' && item.order < 1000 + 40;
+    };
+    const { seen } = await runSession(engine, clock, knows, 15);
+    const band = (id: string) => Number(/^words-(\d+)$/.exec(catalog.item(id)!.cluster)?.[1] ?? 0);
+    const probedFar = seen.filter((v) => v.spec.type === 'retrieval' && v.spec.purpose === 'placement' && band(v.item.id) > 2);
+    expect(probedFar.length, 'placement reached the frequency bands').toBeGreaterThan(0);
+    const taughtFar = seen.filter((v) => v.spec.type === 'introduce' && band(v.item.id) > 2);
+    expect(taughtFar.map((v) => v.item.written)).toEqual([]);
   });
 });

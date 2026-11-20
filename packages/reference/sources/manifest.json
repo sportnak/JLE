@@ -1,0 +1,35 @@
+{
+  "jmdict": {
+    "file": "JMdict_e.gz",
+    "url": "https://www.edrdg.org/pub/Nihongo/JMdict_e.gz",
+    "sha256": "2ed08eb81fab44f91415452cf64ab0fb980d3db39614041635d3da3b7b61f6a5",
+    "bytes": 10607947,
+    "releaseDate": "2026-11-20",
+    "lastModified": "Fri, 20 Nov 2026 03:30:26 GMT",
+    "fetchedAt": "2026-11-20T15:51:44.996Z"
+  },
+  "kanjidic2": {
+    "file": "kanjidic2.xml.gz",
+    "url": "https://www.edrdg.org/pub/Nihongo/kanjidic2.xml.gz",
+    "sha256": "ddb2cffe653c0bfdec287e64e31d9eac515ea5e8fe175c349127157a021a2187",
+    "bytes": 1488572,
+    "releaseDate": "2026-11-20",
+    "lastModified": "Fri, 20 Nov 2026 03:30:40 GMT",
+    "fetchedAt": "2026-11-20T15:51:45.085Z"
+  },
+  "wordfreq": {
+    "file": "large_ja.msgpack.gz",
+    "url": "https://files.pythonhosted.org/packages/24/61/62835c475d69872d30689f284497853fe33fe1d6dd18f57346d13305861d/wordfreq-3.1.1-py3-none-any.whl",
+    "sha256": "e6ab743b939c1802fc03791f1d58dee2861e822ceecdcdee3f0e05b863ef26d8",
+    "bytes": 1217884,
+    "releaseDate": "2023-11-21",
+    "lastModified": null,
+    "fetchedAt": "2026-11-20T15:52:11.156Z",
+    "version": "3.1.1",
+    "archive": {
+      "file": "wordfreq-3.1.1-py3-none-any.whl",
+      "sha256": "4b1c6ecffc6198be3396d5cf871c4423ca71c907c231348d352dd54d62b97473",
+      "member": "wordfreq/data/large_ja.msgpack.gz"
+    }
+  }
+}

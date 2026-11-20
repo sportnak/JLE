@@ -160,23 +160,7 @@ function ItemTable({
         </p>
       )}
 
-      <div className="groups" role="tablist" aria-label="Groups">
-        {state.placement.map((p) => (
-          <button
-            key={p.cluster}
-            role="tab"
-            aria-selected={p.cluster === cluster}
-            className="jle-btn group"
-            onClick={() => setCluster(p.cluster)}
-          >
-            <span>{p.label}</span>
-            <span className="t-body-sm jle-muted">
-              {p.placement === 'unplaced' ? 'Not placed yet' : p.placement === 'known' ? 'Probably known' : 'To learn'}
-              {p.inferred ? ', inferred' : ''}
-            </span>
-          </button>
-        ))}
-      </div>
+      <GroupPicker placement={state.placement} cluster={cluster} onPick={setCluster} />
 
       <div className="table-scroll">
         <table className="items">
@@ -234,6 +218,46 @@ function ItemTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+type GroupRow = ReturnType<Engine['getLearnerState']>['placement'][number];
+
+const placementText = (p: GroupRow) =>
+  `${p.placement === 'unplaced' ? 'Not placed yet' : p.placement === 'known' ? 'Probably known' : 'To learn'}${p.inferred ? ', inferred' : ''}`;
+
+/** Small tracks as buttons; a track with many bands (the dictionary's words) as one dropdown. */
+function GroupPicker({ placement, cluster, onPick }: { placement: GroupRow[]; cluster: string; onPick: (id: string) => void }) {
+  const tracks = new Map<string, GroupRow[]>();
+  for (const p of placement) tracks.set(p.track, [...(tracks.get(p.track) ?? []), p]);
+  const MANY = 12;
+  return (
+    <div className="groups" role="group" aria-label="Groups">
+      {[...tracks.values()].flatMap((rows) => {
+        if (rows.length <= MANY)
+          return rows.map((p) => (
+            <button key={p.cluster} aria-pressed={p.cluster === cluster} className="jle-btn group" onClick={() => onPick(p.cluster)}>
+              <span>{p.label}</span>
+              <span className="t-body-sm jle-muted">{placementText(p)}</span>
+            </button>
+          ));
+        const chosen = rows.find((p) => p.cluster === cluster);
+        return [
+          <label key={rows[0]!.track} className={`jle-btn group group-select ${chosen ? 'on' : ''}`}>
+            <span>{chosen ? chosen.label : `${rows.length} word bands`}</span>
+            <span className="t-body-sm jle-muted">{chosen ? placementText(chosen) : 'Choose a band'}</span>
+            <select value={chosen ? cluster : ''} onChange={(e) => onPick(e.target.value)} aria-label="Word band">
+              {!chosen && <option value="">Choose a band</option>}
+              {rows.map((p) => (
+                <option key={p.cluster} value={p.cluster}>
+                  {p.label} ({placementText(p)})
+                </option>
+              ))}
+            </select>
+          </label>,
+        ];
+      })}
     </div>
   );
 }

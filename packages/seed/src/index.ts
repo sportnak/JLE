@@ -4,8 +4,10 @@ import { toHiragana } from 'wanakana';
 import { kanaCatalog, kanaId, moraeOf } from './kana';
 import { GLUE, SENTENCES } from './sentences';
 import { STARTER_POS, STARTER_VOCAB } from './vocab';
+import { STARTER_ALIASES, STARTER_COUNT, WORDS, wordId } from './words';
 
-const BAND_SIZE = 20;
+const STARTER_BAND = 20;
+const WORD_BAND = 100;
 
 /** The starter catalog, indexed. Word → kana edges are computed from each word's reading when asked for. */
 export function buildCatalog(): Catalog {
@@ -29,32 +31,50 @@ export function buildCatalogData(): CatalogData {
   const items: Item[] = [...kana.items];
   const edges: ItemEdge[] = [...kana.edges];
   const clusters: Cluster[] = [...kana.clusters];
-  const bands = Math.ceil(STARTER_VOCAB.length / BAND_SIZE);
+  const starterWritten = new Map(Object.entries(STARTER_ALIASES).map(([was, now]) => [now, was.slice('vocab:'.length)]));
+  const starterBands = Math.ceil(STARTER_COUNT / STARTER_BAND);
+  const wordBands = Math.ceil((WORDS.length - STARTER_COUNT) / WORD_BAND);
+  const bandOf = (i: number) =>
+    i < STARTER_COUNT ? `vocab-band-${Math.floor(i / STARTER_BAND) + 1}` : `words-${Math.floor((i - STARTER_COUNT) / WORD_BAND) + 1}`;
 
-  for (let b = 0; b < bands; b++) {
+  for (let b = 0; b < starterBands; b++) {
     clusters.push({
       id: `vocab-band-${b + 1}`,
       track: 'vocab',
       order: 100 + b,
-      label: `Starter words ${b * BAND_SIZE + 1}–${Math.min((b + 1) * BAND_SIZE, STARTER_VOCAB.length)}`,
+      label: `Starter words ${b * STARTER_BAND + 1}–${Math.min((b + 1) * STARTER_BAND, STARTER_COUNT)}`,
+      requires: ['hiragana-basic'],
+    });
+  }
+  for (let b = 0; b < wordBands; b++) {
+    const from = STARTER_COUNT + b * WORD_BAND + 1;
+    clusters.push({
+      id: `words-${b + 1}`,
+      track: 'vocab',
+      order: 1000 + b,
+      label: `Common words ${from}–${Math.min(from + WORD_BAND - 1, WORDS.length)}`,
       requires: ['hiragana-basic'],
     });
   }
 
-  STARTER_VOCAB.forEach(([written, reading, gloss], i) => {
-    const id = `vocab:${written}`;
+  WORDS.forEach((w, i) => {
+    const id = wordId(w.jmdictId);
+    const starter = i < STARTER_COUNT ? starterWritten.get(id) : undefined;
+    const own = starter !== undefined ? STARTER_VOCAB.find(([written]) => written === starter) : undefined;
+    const pos = (starter !== undefined && STARTER_POS[starter]) || w.pos;
     items.push({
       id,
       language: 'ja',
       type: 'vocab',
-      written,
-      reading,
-      gloss: gloss.split(';').map((g) => g.trim()),
+      // A starter word keeps the form and meanings it was taught with; the dictionary's are accepted too.
+      written: own ? own[0] : w.written,
+      reading: w.reading,
+      gloss: own ? [...new Set([...own[2].split(';').map((g) => g.trim()), ...w.gloss])] : w.gloss,
       skills: ['read', 'write', 'listen'],
-      cluster: `vocab-band-${Math.floor(i / BAND_SIZE) + 1}`,
+      cluster: bandOf(i),
       order: 1000 + i,
-      tags: { jlpt: 'N5', freq: i + 1 },
-      ...(STARTER_POS[written] ? { pos: STARTER_POS[written] } : {}),
+      tags: { ...(own ? { jlpt: 'N5' } : {}), ...(w.freqRank ? { freq: w.freqRank } : {}) },
+      ...(pos ? { pos } : {}),
     });
   });
 
@@ -64,7 +84,8 @@ export function buildCatalogData(): CatalogData {
     edges,
     clusters: [...clusters, sounds.cluster],
     pairs: sounds.pairs,
-    sentences: dictationSentences(items),
+    sentences: dictationSentences(items.filter((i) => i.type === 'vocab' && i.order < 1000 + STARTER_COUNT)),
+    aliases: STARTER_ALIASES,
   };
 }
 
@@ -116,4 +137,5 @@ function dictationSentences(items: Item[]): DictationSentence[] {
 }
 
 export { STARTER_VOCAB } from './vocab';
+export { ATTRIBUTION, STARTER_ALIASES, wordId } from './words';
 export { moraeOf } from './kana';

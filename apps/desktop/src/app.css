@@ -280,9 +280,20 @@ p {
   padding: var(--space-2) var(--space-3);
   text-align: left;
 }
-.group[aria-selected='true'] {
+.group[aria-pressed='true'],
+.group-select.on {
   border-color: var(--indigo);
   background: var(--indigo-tint);
+}
+.group-select {
+  position: relative;
+}
+.group-select select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  font: inherit;
 }
 .items {
   width: 100%;
