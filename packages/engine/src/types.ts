@@ -78,6 +78,8 @@ export interface Catalog {
   /** Clusters (kana groups, word bands), in no particular order. A few dozen, never per item. */
   clusters(): Cluster[];
   cluster(id: string): Cluster | undefined;
+  /** Items written this way (any reading), most useful first. */
+  byWritten(written: string): Item[];
   /** Members of one cluster, in their teaching order. */
   inCluster(clusterId: string): Item[];
   /** Edges pointing at an item: its components and prerequisites, and confusables. */
@@ -109,7 +111,8 @@ export interface StoredContent {
   id: string;
   learnerId: string;
   createdAt: string;
-  source: 'generated' | 'learner';
+  /** Written for this learner by the model, brought by the learner, or taken from the built-in library. */
+  source: 'generated' | 'learner' | 'library';
   promptVersion: string;
   model: string;
   title: string;
@@ -123,6 +126,8 @@ export interface StoredContent {
   targets: string[];
   /** Share of tracked words the learner had met when it was written. */
   coverage: number;
+  /** The second model's verdict, when the passage was reviewed. */
+  review?: { model: string; natural: boolean; translationMatches: boolean; problems: string[] };
 }
 
 export type Strand = 'input' | 'output' | 'study' | 'fluency';

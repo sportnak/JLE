@@ -68,6 +68,12 @@ export interface EngineConfig {
     targets: number;
     /** Tries after the first when a passage fails its checks. */
     retries: number;
+    /** Have a second model check every generated passage (architecture §7: review is conditional; for now, always). */
+    review: boolean;
+    /** Lowest coverage a built-in library passage may have to be offered. */
+    libraryCoverage: number;
+    /** Days before a passage already read is offered again. */
+    rereadAfterDays: number;
   };
   mix: {
     /** Recognition-Known word counts where stages 2, 3 and 4 begin. */
@@ -150,6 +156,9 @@ export const DEFAULT_CONFIG: EngineConfig = {
     maxNewWords: 3,
     targets: 3,
     retries: 2,
+    review: true,
+    libraryCoverage: 0.6,
+    rereadAfterDays: 3,
   },
   mix: {
     stageWords: [300, 800, 1700],

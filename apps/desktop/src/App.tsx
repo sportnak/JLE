@@ -1,5 +1,5 @@
 import { Engine } from '@jle/engine';
-import { buildCatalog, buildCatalogData } from '@jle/seed';
+import { LIBRARY, buildCatalog, buildCatalogData } from '@jle/seed';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityDemo } from './Demo';
 import { Home } from './Home';
@@ -27,8 +27,11 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      // Generated reading needs the host (tokenizer, dictionary, stored content) and an API key for the model.
-      const reading = inTauri ? { tokenizer, dictionary, contents: contentStore, ...((await apiKeyStatus()) ? { llm } : {}) } : {};
+      // Reading needs the host (tokenizer, dictionary, stored content). With an API key, passages are written for you;
+      // without one, or offline, the best-fitting built-in passage is used.
+      const reading = inTauri
+        ? { tokenizer, dictionary, contents: contentStore, library: LIBRARY, ...((await apiKeyStatus()) ? { llm } : {}) }
+        : {};
       const engine = await Engine.create({ catalog, store, learnerId: LEARNER_ID, ...reading });
       if (import.meta.env.DEV) (window as unknown as { jle: Engine }).jle = engine;
       setEngine(engine);

@@ -141,4 +141,5 @@ function dictationSentences(items: Item[]): DictationSentence[] {
 
 export { STARTER_VOCAB } from './vocab';
 export { ATTRIBUTION, STARTER_ALIASES, wordId } from './words';
+export { LIBRARY } from './passages';
 export { moraeOf } from './kana';

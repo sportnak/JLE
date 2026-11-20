@@ -5,7 +5,7 @@ import { typeOf } from './activities';
 import { currentStage, frontierItems, planCandidates, strandMinutesSince } from './planner';
 import { asHiragana, grade } from './grading';
 import { randomIds, systemClock, type Clock, type ContentStore, type Dictionary, type EventStore, type Ids, type Llm, type Tokenizer } from './ports';
-import { writeReading, type ReadingOutcome } from './content/reading';
+import { pickLibraryPassage, writeReading, type LibraryPassage, type ReadingOutcome } from './content/reading';
 import type {
   ActivitySpec,
   Catalog,
@@ -37,6 +37,8 @@ export interface EngineOptions {
   dictionary?: Dictionary;
   /** Stored content (passages): written once, read back on every replay. */
   contents?: ContentStore;
+  /** Pre-written passages for reading without the model. */
+  library?: LibraryPassage[];
 }
 
 export interface ActivityView {
@@ -105,6 +107,7 @@ export class Engine {
   private contents: StoredContent[] = [];
   private preparing: Promise<ReadingOutcome> | null = null;
   private writing: Promise<unknown> = Promise.resolve();
+  private libraryMaps = new Map<string, { tokens: import('./types').ContentToken[]; items: Item[] }>();
   private readonly config: EngineConfig;
   private readonly clock: Clock;
   private readonly ids: Ids;
@@ -215,27 +218,31 @@ export class Engine {
     return { done: false, activity: this.view(activityId, best.reason) };
   }
 
-  /** Whether generated reading can run here: the host ports are wired and the model is reachable. */
-  get canWriteReading(): boolean {
-    return !!(this.opts.llm && this.opts.tokenizer && this.opts.dictionary && this.opts.contents);
-  }
-
   /**
-   * Writes the next passage in the background, so it is ready when the planner wants one. At most one unread passage
-   * is kept (architecture §7.2: at most one activity pre-generated). Safe to call often: one run at a time.
+   * Gets the next passage ready in the background, so it is there when the planner wants one: written for the learner
+   * when the model is available, otherwise (no key, offline, or a failed run) the best-fitting library passage. At most
+   * one unread passage is kept (architecture §7.2). Safe to call often: one run at a time.
    */
   prepareReading(sessionId?: string): Promise<ReadingOutcome> {
     if (this.preparing) return this.preparing;
-    const { llm, tokenizer, dictionary, contents } = this.opts;
-    if (!llm || !tokenizer || !dictionary || !contents) return Promise.resolve({ status: 'skipped', reason: 'reading is not set up' });
+    const { llm, tokenizer, dictionary, contents, library } = this.opts;
+    if (!tokenizer || !dictionary || !contents) return Promise.resolve({ status: 'skipped', reason: 'reading is not set up' });
     if (this.model.unreadContent().length > 0) return Promise.resolve({ status: 'skipped', reason: 'a passage is already waiting' });
     this.preparing = (async (): Promise<ReadingOutcome> => {
-      const outcome = await writeReading({ llm, tokenizer, dictionary }, this.model, {
-        learnerId: this.opts.learnerId,
-        now: this.clock.now(),
-        ids: this.ids,
-        ...(sessionId ? { sessionId } : {}),
-      });
+      const now = this.clock.now();
+      let outcome: ReadingOutcome = { status: 'skipped', reason: 'no model' };
+      if (llm) {
+        outcome = await writeReading({ llm, tokenizer, dictionary }, this.model, {
+          learnerId: this.opts.learnerId,
+          now,
+          ids: this.ids,
+          ...(sessionId ? { sessionId } : {}),
+        }).catch((e): ReadingOutcome => ({ status: 'failed', reason: String(e), tries: 0 }));
+      }
+      if (outcome.status !== 'ready' && library?.length) {
+        const fallback = await pickLibraryPassage({ tokenizer, dictionary }, this.model, library, { learnerId: this.opts.learnerId, now }, this.libraryMaps);
+        if (fallback.status === 'ready') outcome = fallback;
+      }
       if (outcome.status === 'ready') {
         await contents.put(outcome.content);
         this.contents.push(outcome.content);

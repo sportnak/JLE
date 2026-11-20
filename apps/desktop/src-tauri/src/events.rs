@@ -54,6 +54,26 @@ const MIGRATIONS: &[&str] = &[r#"
     error              TEXT
   );
   CREATE INDEX llm_call_route ON llm_call (route);
+"#, r#"
+  -- Library passages (pre-written, shipped with the app) are stored content too. SQLite cannot change a CHECK in place,
+  -- so the table is rebuilt with its rows; dropping a table fires no delete triggers.
+  CREATE TABLE content_v3 (
+    id             TEXT PRIMARY KEY,
+    learner_id     TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    source         TEXT NOT NULL CHECK (source IN ('generated', 'learner', 'library')),
+    prompt_version TEXT,
+    model          TEXT,
+    payload        TEXT NOT NULL
+  );
+  INSERT INTO content_v3 SELECT id, learner_id, created_at, source, prompt_version, model, payload FROM content ORDER BY rowid;
+  DROP TABLE content;
+  ALTER TABLE content_v3 RENAME TO content;
+  CREATE INDEX content_learner ON content (learner_id, created_at);
+  CREATE TRIGGER content_no_update BEFORE UPDATE ON content
+    BEGIN SELECT RAISE(ABORT, 'content is immutable'); END;
+  CREATE TRIGGER content_no_delete BEFORE DELETE ON content
+    BEGIN SELECT RAISE(ABORT, 'content is immutable'); END;
 "#];
 
 pub struct EventStore {
@@ -121,8 +141,16 @@ impl EventStore {
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
   let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
   for (i, sql) in (0i64..).zip(MIGRATIONS.iter()).skip(version as usize) {
-    conn.execute_batch(sql)?;
-    conn.pragma_update(None, "user_version", i + 1)?;
+    // Each migration and its version bump commit together, so a crash mid-way leaves the previous version intact.
+    conn.execute_batch("BEGIN")?;
+    let step = conn.execute_batch(sql).and_then(|_| conn.pragma_update(None, "user_version", i + 1));
+    match step {
+      Ok(()) => conn.execute_batch("COMMIT")?,
+      Err(e) => {
+        conn.execute_batch("ROLLBACK").ok();
+        return Err(e);
+      }
+    }
   }
   Ok(())
 }
@@ -210,6 +238,34 @@ mod tests {
   fn event(seq: i64) -> Value {
     json!({"id": format!("e{seq}"), "seq": seq, "at": "2026-11-19T10:00:00Z",
            "learnerId": "me", "language": "ja", "kind": "skip", "activityId": "a"})
+  }
+
+  #[test]
+  fn upgrading_keeps_stored_content_and_its_protection() {
+    let conn = Connection::open_in_memory().unwrap();
+    for sql in &MIGRATIONS[..2] {
+      conn.execute_batch(sql).unwrap();
+    }
+    conn.pragma_update(None, "user_version", 2).unwrap();
+    conn
+      .execute(
+        "INSERT INTO content (id, learner_id, created_at, source, payload) VALUES ('c1', 'me', '2026-11-20T00:00:00Z', 'generated', '{}')",
+        [],
+      )
+      .unwrap();
+    migrate(&conn).unwrap();
+    let n: i64 = conn.query_row("SELECT count(*) FROM content WHERE id = 'c1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 1);
+    assert!(conn.execute("UPDATE content SET payload = 'x'", []).is_err());
+    assert!(conn.execute("DELETE FROM content", []).is_err());
+    conn
+      .execute(
+        "INSERT INTO content (id, learner_id, created_at, source, payload) VALUES ('l1', 'me', '2026-11-20T00:00:01Z', 'library', '{}')",
+        [],
+      )
+      .unwrap();
+    let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+    assert_eq!(v, MIGRATIONS.len() as i64);
   }
 
   #[test]

@@ -90,6 +90,8 @@ mod tests {
     assert!(store.conn().execute("UPDATE content SET payload = '{}'", []).is_err());
     assert!(store.conn().execute("DELETE FROM content", []).is_err());
     assert!(put(store.conn(), &json!({"id": "x", "learnerId": "me", "createdAt": "t"})).is_err());
+    let library = json!({"id": "library:p1", "learnerId": "me", "createdAt": "2026-11-21T00:00:01Z", "source": "library"});
+    assert!(put(store.conn(), &library).is_ok());
     let wrong_source = json!({"id": "y", "learnerId": "me", "createdAt": "t", "source": "web"});
     assert!(put(store.conn(), &wrong_source).is_err());
   }

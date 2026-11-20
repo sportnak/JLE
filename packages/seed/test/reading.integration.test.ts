@@ -5,17 +5,19 @@ import {
   MemoryContentStore,
   MemoryEventStore,
   checkPassage,
+  mapTokens,
   type Dictionary,
   type DictionaryEntry,
   type EngineConfig,
   type Ids,
   type Item,
+  type LibraryPassage,
   type Llm,
   type LlmRequest,
   type Token,
   type Tokenizer,
 } from '@jle/engine';
-import { buildCatalog } from '../src/index';
+import { LIBRARY, buildCatalog } from '../src/index';
 
 const catalog = buildCatalog();
 const starter = catalog
@@ -98,17 +100,24 @@ const dictionary: Dictionary = {
     }),
 };
 
-function fakeLlm(texts: string[]) {
+/** Writes the given passages in turn; reviews pass unless `verdicts` says false for that review. */
+function fakeLlm(texts: string[], verdicts: boolean[] = [true]) {
   const requests: LlmRequest[] = [];
+  const reviews: LlmRequest[] = [];
   let i = 0;
   const llm: Llm = {
-    call: vi.fn(async (_route, request: LlmRequest) => {
+    call: vi.fn(async (route, request: LlmRequest) => {
+      if (route === 'review') {
+        reviews.push(request);
+        const bad = verdicts[Math.min(reviews.length - 1, verdicts.length - 1)] === false;
+        return { output: { natural: !bad, translationMatches: true, problems: bad ? ['「骨董品を鑑定しました」は不自然です'] : [] }, stopReason: 'end_turn', model: 'claude-sonnet-5-5', callId: `review-${reviews.length}` };
+      }
       requests.push(request);
       const text = texts[Math.min(i++, texts.length - 1)]!;
       return { output: { title: '朝', text, translation: 'A passage.' }, stopReason: 'end_turn', model: 'claude-opus-5-5', callId: `call-${i}` };
     }),
   };
-  return { llm, requests };
+  return { llm, requests, reviews };
 }
 
 const seqIds = (): Ids => {
@@ -124,20 +133,39 @@ const EASY_WORDS = ['毎日', 'コーヒー', '飲む'];
  * A learner who has met the first `met` starter words plus `extra` (marked known, so each has a read state).
  * By default that includes every word of the easy passage.
  */
-async function learner(texts: string[], met = 25, extra: string[] = EASY_WORDS, cfg: EngineConfig = config) {
+async function learner(
+  texts: string[],
+  met = 25,
+  extra: string[] = EASY_WORDS,
+  cfg: EngineConfig = config,
+  opts: { model?: boolean; library?: LibraryPassage[]; verdicts?: boolean[] } = {},
+) {
   let t = new Date('2026-11-01T09:00:00Z').getTime();
   const clock = { now: () => new Date(t), advance: (ms: number) => (t += ms) };
   const store = new MemoryEventStore();
   const contents = new MemoryContentStore();
-  const { llm, requests } = fakeLlm(texts);
-  const make = (l: Llm) =>
-    Engine.create({ catalog, store, contents, learnerId: 'me', clock, ids: seqIds(), utcOffsetMinutes: 0, config: cfg, llm: l, tokenizer, dictionary });
-  const engine = await make(llm);
+  const { llm, requests, reviews } = fakeLlm(texts, opts.verdicts);
+  const make = (l: Llm | null) =>
+    Engine.create({
+      catalog,
+      store,
+      contents,
+      learnerId: 'me',
+      clock,
+      ids: seqIds(),
+      utcOffsetMinutes: 0,
+      config: cfg,
+      ...(l ? { llm: l } : {}),
+      tokenizer,
+      dictionary,
+      ...(opts.library ? { library: opts.library } : {}),
+    });
+  const engine = await make(opts.model === false ? null : llm);
   // Every kana is known (overrides are instant), as for any learner reading passages.
   for (const c of catalog.clusters().filter((k) => k.track === 'script')) for (const k of catalog.inCluster(c.id)) await engine.overrideItem(k.id);
   for (const item of starter.slice(0, met)) await engine.overrideItem(item.id);
   for (const w of extra) await engine.overrideItem(word(w).id);
-  return { engine, clock, store, contents, llm, requests, make };
+  return { engine, clock, store, contents, llm, requests, reviews, make };
 }
 
 /** Runs a session to its end, answering everything right and reading any passage without lookups. */
@@ -363,5 +391,92 @@ describe('review fixes', () => {
       { surface: '飲んで', reading: 'のんで', begin: 2, end: 5, itemId: drink.id },
     ];
     expect(checkPassage(engine.learner, '飲み飲んで', tokens, [], config).newWords).toEqual(['飲む']);
+  });
+});
+
+describe('review and offline reading', () => {
+  const LIB: LibraryPassage[] = [
+    { id: 'hard', level: 1, title: '骨董', text: HARD, translation: 'An antique.' },
+    { id: 'easy', level: 2, title: '朝', text: EASY, translation: 'Every day coffee.' },
+  ];
+
+  it('every generated passage is reviewed, and the verdict is stored with it', async () => {
+    const { engine, contents, reviews } = await learner([EASY]);
+    expect((await engine.prepareReading()).status).toBe('ready');
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]!.user).toContain(EASY);
+    expect(contents.contents[0]!.review).toMatchObject({ model: 'claude-sonnet-5-5', natural: true, translationMatches: true });
+  });
+
+  it('a passage the reviewer rejects is written again with its notes', async () => {
+    const { engine, requests, reviews } = await learner([EASY, EASY], 25, EASY_WORDS, config, { verdicts: [false, true] });
+    expect(await engine.prepareReading()).toMatchObject({ status: 'ready', tries: 2 });
+    expect(reviews).toHaveLength(2);
+    expect(requests[1]!.user).toContain('A reviewer found problems');
+  });
+
+  it('without a model, the best-fitting library passage is used and stored like any other', async () => {
+    const { engine, contents, clock } = await learner([], 25, EASY_WORDS, config, { model: false, library: LIB });
+    const outcome = await engine.prepareReading();
+    expect(outcome).toMatchObject({ status: 'ready' });
+    expect(contents.contents.map((c) => [c.id, c.source])).toEqual([['library:easy', 'library']]);
+    const { types } = await session(engine, clock);
+    expect(types).toContain('reading');
+  });
+
+  it('a failed model run falls back to the library', async () => {
+    const { engine, contents } = await learner([HARD], 25, EASY_WORDS, config, { library: LIB });
+    expect((await engine.prepareReading()).status).toBe('ready');
+    expect(contents.contents[0]!.source).toBe('library');
+  });
+
+  it('a library passage that does not fit is not offered', async () => {
+    const { engine, contents } = await learner([], 0, [], config, { model: false, library: LIB });
+    expect((await engine.prepareReading()).status).not.toBe('ready');
+    expect(contents.contents).toHaveLength(0);
+  });
+
+  it('a passage read a few days ago comes back to be read again', async () => {
+    const { engine, clock } = await learner([], 25, EASY_WORDS, config, { model: false, library: [LIB[1]!] });
+    await engine.prepareReading();
+    expect((await session(engine, clock)).types).toContain('reading');
+    clock.advance(86_400_000);
+    expect((await session(engine, clock)).types).not.toContain('reading');
+    clock.advance(3 * 86_400_000);
+    const { sessionId, types } = await session(engine, clock);
+    expect(types).toContain('reading');
+    const again = engine.learner.sessions.get(sessionId)!.activityIds.map((id) => engine.learner.activities.get(id)!).find((a) => a.spec.type === 'reading')!;
+    expect(again.spec.type === 'reading' && again.spec.contentId).toBe('library:easy');
+  });
+
+  it('the built-in library is well formed', () => {
+    expect(new Set(LIBRARY.map((p) => p.id)).size).toBe(LIBRARY.length);
+    for (const p of LIBRARY) {
+      expect(p.text, p.id).not.toMatch(/[A-Za-z]/);
+      expect([...p.text].length, p.id).toBeGreaterThan(10);
+      expect([...p.text].length, p.id).toBeLessThanOrEqual(400);
+      expect(p.translation.length, p.id).toBeGreaterThan(5);
+      expect(p.level, p.id).toBeGreaterThanOrEqual(1);
+    }
+    expect(new Set(LIBRARY.map((p) => p.level)).size).toBe(6);
+  });
+});
+
+describe('mapping words the tokenizer reads another way', () => {
+  const t = (surface: string, reading: string, pos0 = '代名詞') => tokens([[surface, surface, reading, reading, pos0]]);
+  const entries: Record<string, DictionaryEntry> = {
+    'わたくし': { id: 2842390, written: '私', reading: 'わたくし', freqRank: null, pos: ['pn'], gloss: ['I (formal)'] },
+    'じ': { id: 2020680, written: '時', reading: 'じ', freqRank: null, pos: ['suf'], gloss: ["o'clock"] },
+  };
+  const dict: Dictionary = { lookup: async (keys) => keys.map((k) => entries[k.reading ?? ''] ?? null) };
+
+  it('a rare reading of a listed word maps to the listed word', async () => {
+    const mapped = await mapTokens(t('私', 'わたくし'), dict, catalog);
+    expect(mapped.tokens[0]!.itemId).toBe(word('私').id);
+  });
+
+  it('an affix keeps its own entry', async () => {
+    const mapped = await mapTokens(t('時', 'じ', '名詞'), dict, catalog);
+    expect(mapped.tokens[0]!.itemId).toBe('jmdict:2020680');
   });
 });

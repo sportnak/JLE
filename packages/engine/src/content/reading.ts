@@ -4,6 +4,7 @@ import type { Dictionary, DictionaryEntry, Ids, Llm, LlmRequest, Token, Tokenize
 import type { Catalog, ContentToken, Item, StoredContent } from '../types';
 
 export const READING_PROMPT_VERSION = 'reading-1';
+export const REVIEW_PROMPT_VERSION = 'review-1';
 
 /** Where words beyond the built-in list go when a passage brings them in. Taught only if looked up. */
 export const EXTRA_CLUSTER = 'reading-extra';
@@ -36,6 +37,38 @@ export const READING_SCHEMA = {
   required: ['title', 'text', 'translation'],
   additionalProperties: false,
 };
+
+/** The second look (route `review`, a different model): is the Japanese natural, and does the English match it? */
+export const REVIEW_SYSTEM = `You check short Japanese reading passages written for beginners, before a learner sees them.
+
+Judge two things:
+- natural: every sentence is correct, natural Japanese a native speaker would accept: grammar, particles, word choice, counters, and a consistent polite style.
+- translationMatches: the English says what the Japanese says, with nothing important added or left out.
+
+List each concrete problem in problems, quoting the Japanese it concerns. Be strict about mistakes and unnatural phrasing; do not object to simple vocabulary or short sentences, which are intended. If there are no problems, return an empty list.`;
+
+export const REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    natural: { type: 'boolean' },
+    translationMatches: { type: 'boolean' },
+    problems: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['natural', 'translationMatches', 'problems'],
+  additionalProperties: false,
+};
+
+export function reviewRequest(title: string, text: string, translation: string, sessionId?: string): LlmRequest {
+  return {
+    promptVersion: REVIEW_PROMPT_VERSION,
+    system: REVIEW_SYSTEM,
+    user: `Title: ${title}\n\nJapanese:\n${text}\n\nEnglish:\n${translation}`,
+    schema: REVIEW_SCHEMA,
+    maxTokens: 4000,
+    effort: 'medium',
+    ...(sessionId ? { sessionId } : {}),
+  };
+}
 
 const TOPICS = [
   'a morning at home',
@@ -128,6 +161,18 @@ export function itemFromEntry(e: DictionaryEntry): Item {
   };
 }
 
+const AFFIX_POS = new Set(['suf', 'n-suf', 'pref', 'n-pref', 'ctr']);
+
+/**
+ * The tokenizer sometimes reads a common word another way (私 as わたくし, 何 as なん), which lands on a rare entry for the
+ * same written word. When the matched entry is unranked and not an affix or counter, and the word list has a word written
+ * the same way, that listed word is meant. An affix such as 時 (じ, o'clock) keeps its own entry.
+ */
+function listedSameWord(catalog: Catalog, lemma: string, entry: DictionaryEntry): Item | undefined {
+  if (entry.freqRank !== null || entry.pos.some((p) => AFFIX_POS.has(p))) return undefined;
+  return catalog.byWritten(lemma).find((i) => i.type === 'vocab' && i.cluster !== EXTRA_CLUSTER);
+}
+
 /**
  * Maps tracked tokens to items through the host's dictionary. Words it cannot find stay untracked. Every item it maps
  * to is returned, so stored content replays the same even if the built-in word list changes later.
@@ -144,7 +189,7 @@ export async function mapTokens(
   tracked.forEach(([, i], k) => {
     const entry = found[k];
     if (!entry) return;
-    const item = catalog.item(`jmdict:${entry.id}`) ?? itemFromEntry(entry);
+    const item = catalog.item(`jmdict:${entry.id}`) ?? listedSameWord(catalog, tokens[i]!.dictionaryForm, entry) ?? itemFromEntry(entry);
     itemAt.set(i, item);
     items.set(item.id, item);
   });
@@ -244,6 +289,23 @@ export async function writeReading(
       feedback = retryNote(check);
       continue;
     }
+    let review: StoredContent['review'];
+    if (cfg.review) {
+      let verdict;
+      try {
+        verdict = await ports.llm.call('review', reviewRequest(out.title, text, out.translation, opts.sessionId));
+      } catch (e) {
+        return { status: 'failed', reason: `the review call failed: ${String(e)}`, tries };
+      }
+      const v = verdict.output as { natural?: unknown; translationMatches?: unknown; problems?: unknown } | null;
+      const problems = Array.isArray(v?.problems) ? v!.problems.filter((p): p is string => typeof p === 'string') : [];
+      if (v?.natural !== true || v?.translationMatches !== true) {
+        last = `the review found problems: ${problems.join('; ') || 'no details'}`;
+        feedback = `A reviewer found problems in the last version: ${problems.join(' ') || 'it was not natural Japanese.'} Write a new passage that avoids them.`;
+        continue;
+      }
+      review = { model: verdict.model, natural: true, translationMatches: true, problems };
+    }
     return {
       status: 'ready',
       tries,
@@ -261,8 +323,77 @@ export async function writeReading(
         items: mapped.items,
         targets: targets.map((t) => t.id),
         coverage: check.coverage,
+        ...(review ? { review } : {}),
       },
     };
   }
   return { status: 'failed', reason: last, tries: cfg.retries + 1 };
+}
+
+/** A pre-written passage shipped with the app, for when there is no model: no key, no network, or a failed run. */
+export interface LibraryPassage {
+  id: string;
+  /** Rough difficulty, 1 (first weeks) to 6 (around N4). Only used to break ties. */
+  level: number;
+  title: string;
+  text: string;
+  translation: string;
+}
+
+export const LIBRARY_PROMPT_VERSION = 'library-1';
+export const libraryContentId = (p: LibraryPassage) => `library:${p.id}`;
+
+/** How far a passage is from the sweet spot of about two new words: enough to learn from, few enough to read. */
+const stretch = (newWords: number) => Math.abs(newWords - 2);
+
+/**
+ * The library passage that fits the learner best right now: enough met words to read it, and closest to two new
+ * words. As the learner's words grow, harder passages become the best fit. Tokenizing and mapping run locally.
+ */
+export async function pickLibraryPassage(
+  ports: { tokenizer: Tokenizer; dictionary: Dictionary },
+  model: LearnerModel,
+  library: LibraryPassage[],
+  opts: { learnerId: string; now: Date },
+  cache: Map<string, { tokens: ContentToken[]; items: Item[] }> = new Map(),
+): Promise<ReadingOutcome> {
+  const cfg = model.config.reading;
+  const fresh = library.filter((p) => !model.contents.has(libraryContentId(p)));
+  if (fresh.length === 0) return { status: 'skipped', reason: 'every library passage has been read' };
+  let best: { p: LibraryPassage; mapped: { tokens: ContentToken[]; items: Item[] }; check: PassageCheck } | null = null;
+  for (const p of fresh) {
+    let mapped = cache.get(p.id);
+    if (!mapped) {
+      mapped = await mapTokens(await ports.tokenizer.analyze(p.text), ports.dictionary, model.catalog);
+      cache.set(p.id, mapped);
+    }
+    const check = checkPassage(model, p.text, mapped.tokens, [], model.config);
+    if (check.coverage < cfg.libraryCoverage || check.newWords.length > cfg.maxNewWords + 2) continue;
+    const better =
+      !best ||
+      stretch(check.newWords.length) < stretch(best.check.newWords.length) ||
+      (stretch(check.newWords.length) === stretch(best.check.newWords.length) &&
+        (check.coverage > best.check.coverage || (check.coverage === best.check.coverage && p.level < best.p.level)));
+    if (better) best = { p, mapped, check };
+  }
+  if (!best) return { status: 'skipped', reason: 'no library passage fits yet' };
+  return {
+    status: 'ready',
+    tries: 0,
+    content: {
+      id: libraryContentId(best.p),
+      learnerId: opts.learnerId,
+      createdAt: opts.now.toISOString(),
+      source: 'library',
+      promptVersion: LIBRARY_PROMPT_VERSION,
+      model: 'none',
+      title: best.p.title,
+      text: best.p.text,
+      translation: best.p.translation,
+      tokens: best.mapped.tokens,
+      items: best.mapped.items,
+      targets: [],
+      coverage: best.check.coverage,
+    },
+  };
 }

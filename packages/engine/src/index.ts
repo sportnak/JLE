@@ -19,5 +19,9 @@ export {
   readingRequest,
   readingTargets,
   writeReading,
+  pickLibraryPassage,
+  reviewRequest,
+  libraryContentId,
+  type LibraryPassage,
   type ReadingOutcome,
 } from './content/reading';

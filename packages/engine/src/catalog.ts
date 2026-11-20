@@ -15,6 +15,8 @@ export function memoryCatalog(data: CatalogData, computeEdges?: (item: Item) => 
   const items = new Map(data.items.map((i) => [i.id, i]));
   const clusters = new Map(data.clusters.map((c) => [c.id, c]));
   const members = group(data.items, (i) => [i.cluster]);
+  const written = group(data.items, (i) => [i.written]);
+  for (const list of written.values()) list.sort((a, b) => a.order - b.order);
   for (const list of members.values()) list.sort((a, b) => a.order - b.order);
   const stored = group(data.edges, (e) => [e.to]);
   const pairs = new Map((data.pairs ?? []).map((p) => [p.id, p]));
@@ -31,6 +33,7 @@ export function memoryCatalog(data: CatalogData, computeEdges?: (item: Item) => 
     clusters: (): Cluster[] => [...clusters.values()],
     cluster: (id) => clusters.get(id),
     inCluster: (id) => members.get(id) ?? [],
+    byWritten: (w) => written.get(w) ?? [],
     edgesInto(id) {
       const own = stored.get(id) ?? [];
       const item = computeEdges && items.get(id);
@@ -49,6 +52,10 @@ export function memoryCatalog(data: CatalogData, computeEdges?: (item: Item) => 
         // extra group, taught only when looked up, so a word later dropped from the list cannot come back into a band.
         const item: Item = { ...raw, id, cluster: EXTRA_CLUSTER };
         items.set(id, item);
+        const same = written.get(item.written) ?? [];
+        same.push(item);
+        same.sort((a, b) => a.order - b.order);
+        written.set(item.written, same);
         const list = members.get(item.cluster) ?? [];
         list.push(item);
         list.sort((a, b) => a.order - b.order);
