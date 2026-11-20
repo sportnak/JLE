@@ -30,6 +30,8 @@ export interface Cluster {
   order: number;
   label: string;
   requires?: string[];
+  /** Taught only when wanted (looked up while reading), never by walking the cluster in order. */
+  wantedOnly?: boolean;
 }
 
 /** Two words that differ in one sound feature, written in kana. `kana` lists the kana items both words use. */
@@ -85,6 +87,42 @@ export interface Catalog {
   pairsFor(itemId: string): MinimalPair[];
   /** Dictation sentences that contain the item. */
   sentencesWith(itemId: string): DictationSentence[];
+  /** Adds items met in stored content (words beyond the built-in list). Items already present are kept as they are. */
+  extend(items: Item[]): void;
+}
+
+/** A token of stored content, mapped to an item when it is a tracked word. Offsets are in characters. */
+export interface ContentToken {
+  surface: string;
+  /** Hiragana reading of the surface. */
+  reading: string;
+  begin: number;
+  end: number;
+  itemId?: string;
+}
+
+/**
+ * A piece of text the learner reads: generated to a spec or brought by the learner. A stored output: written once,
+ * never changed, and read back on replay so the model is never called again.
+ */
+export interface StoredContent {
+  id: string;
+  learnerId: string;
+  createdAt: string;
+  source: 'generated' | 'learner';
+  promptVersion: string;
+  model: string;
+  title: string;
+  text: string;
+  /** English, shown after reading. */
+  translation: string;
+  tokens: ContentToken[];
+  /** Every item the token map points at, so the content replays the same whatever the built-in list holds. */
+  items: Item[];
+  /** The words it was written around. */
+  targets: string[];
+  /** Share of tracked words the learner had met when it was written. */
+  coverage: number;
 }
 
 export type Strand = 'input' | 'output' | 'study' | 'fluency';
@@ -120,6 +158,15 @@ export type ActivitySpec =
       answer: string;
     }
   | {
+      type: 'reading';
+      /** The passage's first target word; evidence lands on every tracked word in it. */
+      itemId: string;
+      purpose: 'practice';
+      contentId: string;
+      /** Characters in the passage, for its expected time. */
+      chars: number;
+    }
+  | {
       type: 'dictation';
       /** The word the dictation was chosen for. Every tracked segment gets evidence. */
       itemId: string;
@@ -151,6 +198,8 @@ export type InteractionEvent = Base &
     | { kind: 'dispute'; activityId: string }
     | { kind: 'override'; itemId: string; claim: 'known' }
     | { kind: 'flag'; activityId: string; reason: string }
+    | { kind: 'lookup'; activityId: string; itemId: string; tokenIndex: number }
+    | { kind: 'reading_done'; activityId: string; latencyMs: number }
   );
 
 export type InteractionKind = InteractionEvent['kind'];

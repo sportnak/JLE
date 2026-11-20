@@ -1,4 +1,6 @@
 //! The interaction log: append-only, the source of truth for all learner state.
+//! The same database file holds stored content (`content.rs`) and the cost log (`llm.rs`); their tables are
+//! created by the migrations here so there is one `user_version` sequence.
 
 use rusqlite::{params, Connection};
 use serde_json::Value;
@@ -21,6 +23,37 @@ const MIGRATIONS: &[&str] = &[r#"
     BEGIN SELECT RAISE(ABORT, 'interaction_event is append-only'); END;
   CREATE TRIGGER interaction_event_no_delete BEFORE DELETE ON interaction_event
     BEGIN SELECT RAISE(ABORT, 'interaction_event is append-only'); END;
+"#, r#"
+  CREATE TABLE content (
+    id             TEXT PRIMARY KEY,
+    learner_id     TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    source         TEXT NOT NULL CHECK (source IN ('generated', 'learner')),
+    prompt_version TEXT,
+    model          TEXT,
+    payload        TEXT NOT NULL
+  );
+  CREATE INDEX content_learner ON content (learner_id, created_at);
+  CREATE TRIGGER content_no_update BEFORE UPDATE ON content
+    BEGIN SELECT RAISE(ABORT, 'content is immutable'); END;
+  CREATE TRIGGER content_no_delete BEFORE DELETE ON content
+    BEGIN SELECT RAISE(ABORT, 'content is immutable'); END;
+  CREATE TABLE llm_call (
+    id                 TEXT PRIMARY KEY,
+    at                 TEXT NOT NULL,
+    route              TEXT NOT NULL,
+    prompt_version     TEXT NOT NULL,
+    model              TEXT NOT NULL,
+    session_id         TEXT,
+    input_tokens       INTEGER NOT NULL,
+    output_tokens      INTEGER NOT NULL,
+    cache_read_tokens  INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL,
+    latency_ms         INTEGER NOT NULL,
+    stop_reason        TEXT,
+    error              TEXT
+  );
+  CREATE INDEX llm_call_route ON llm_call (route);
 "#];
 
 pub struct EventStore {
@@ -38,6 +71,10 @@ impl EventStore {
 
   pub fn path(&self) -> &Path {
     &self.path
+  }
+
+  pub fn conn(&self) -> &Connection {
+    &self.conn
   }
 
   fn load(&self, learner_id: &str) -> rusqlite::Result<Vec<Value>> {
@@ -102,24 +139,61 @@ pub fn events_append(store: Store, event: Value) -> Result<(), String> {
   store.lock().unwrap().append(&event)
 }
 
-/// Starting over is the one way the log goes away: the whole file is replaced.
+/// Starting over is the one way the log goes away: the whole file is replaced, which also drops stored content.
+/// The cost log is not learner data, so its rows are carried over into the new file.
 #[tauri::command]
 pub fn events_reset(store: Store) -> Result<(), String> {
-  let mut guard = store.lock().unwrap();
+  reset(&mut store.lock().unwrap())
+}
+
+fn reset(guard: &mut EventStore) -> Result<(), String> {
+  let kept = KeptRows::read(&guard.conn, "llm_call").map_err(|e| e.to_string())?;
   let path = guard.path.clone();
   let fresh = path.with_extension("sqlite.new");
   let _ = std::fs::remove_file(&fresh);
   let next = EventStore::open(fresh.clone()).map_err(|e| e.to_string())?;
-  drop(std::mem::replace(&mut *guard, next));
+  drop(std::mem::replace(guard, next));
   for ext in ["sqlite", "sqlite-wal", "sqlite-shm"] {
     let _ = std::fs::remove_file(path.with_extension(ext));
   }
   drop(std::mem::replace(
-    &mut *guard,
+    guard,
     EventStore::open(path.clone()).map_err(|e| e.to_string())?,
   ));
-  let _ = std::fs::remove_file(&fresh);
-  Ok(())
+  for ext in ["sqlite.new", "sqlite.new-wal", "sqlite.new-shm"] {
+    let _ = std::fs::remove_file(path.with_extension(ext));
+  }
+  kept.write(&mut guard.conn).map_err(|e| e.to_string())
+}
+
+/// Every row of one table, held in memory across a reset.
+struct KeptRows {
+  table: &'static str,
+  columns: usize,
+  rows: Vec<Vec<rusqlite::types::Value>>,
+}
+
+impl KeptRows {
+  fn read(conn: &Connection, table: &'static str) -> rusqlite::Result<Self> {
+    let mut stmt = conn.prepare(&format!("SELECT * FROM {table}"))?;
+    let columns = stmt.column_count();
+    let rows = stmt
+      .query_map([], |row| (0..columns).map(|i| row.get(i)).collect())?
+      .collect::<rusqlite::Result<_>>()?;
+    Ok(Self { table, columns, rows })
+  }
+
+  fn write(&self, conn: &mut Connection) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    {
+      let marks = vec!["?"; self.columns].join(", ");
+      let mut stmt = tx.prepare(&format!("INSERT INTO {} VALUES ({marks})", self.table))?;
+      for row in &self.rows {
+        stmt.execute(rusqlite::params_from_iter(row))?;
+      }
+    }
+    tx.commit()
+  }
 }
 
 #[cfg(test)]
@@ -154,5 +228,45 @@ mod tests {
     assert!(store.append(&json!({"id": "other", "seq": 1, "at": "x", "learnerId": "me", "language": "ja", "kind": "skip"})).is_err());
     assert!(store.conn.execute("UPDATE interaction_event SET kind = 'x'", []).is_err());
     assert!(store.conn.execute("DELETE FROM interaction_event", []).is_err());
+  }
+
+  #[test]
+  fn kept_rows_survive_into_a_new_file() {
+    let old = temp_store("keep-old");
+    old
+      .conn
+      .execute(
+        "INSERT INTO llm_call VALUES ('c1', 'now', 'generate', 'v1', 'm', NULL, 1, 2, 3, 4, 5, 'end_turn', NULL)",
+        [],
+      )
+      .unwrap();
+    let kept = KeptRows::read(&old.conn, "llm_call").unwrap();
+    let mut new = temp_store("keep-new");
+    kept.write(&mut new.conn).unwrap();
+    let n: i64 = new.conn.query_row("SELECT output_tokens FROM llm_call WHERE id = 'c1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 2);
+  }
+
+  #[test]
+  fn reset_clears_events_and_content_but_keeps_the_cost_log() {
+    let mut store = temp_store("reset");
+    store.append(&event(1)).unwrap();
+    store
+      .conn
+      .execute("INSERT INTO content VALUES ('k', 'me', 'now', 'generated', 'v1', 'm', '{}')", [])
+      .unwrap();
+    store
+      .conn
+      .execute(
+        "INSERT INTO llm_call VALUES ('c1', 'now', 'generate', 'v1', 'm', NULL, 1, 2, 3, 4, 5, 'end_turn', NULL)",
+        [],
+      )
+      .unwrap();
+    reset(&mut store).unwrap();
+    let count = |t: &str| -> i64 { store.conn.query_row(&format!("SELECT count(*) FROM {t}"), [], |r| r.get(0)).unwrap() };
+    assert_eq!(count("interaction_event"), 0);
+    assert_eq!(count("content"), 0);
+    assert_eq!(count("llm_call"), 1);
+    assert!(!store.path().with_extension("sqlite.new").exists());
   }
 }

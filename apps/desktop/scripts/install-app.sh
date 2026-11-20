@@ -9,6 +9,11 @@ if [ "$(git rev-parse --path-format=absolute --git-dir)" != "$(git rev-parse --p
   exit 1
 fi
 
+# The dictionary is bundled into the app (src-tauri/tauri.conf.json resources); build it first if it is missing.
+if [ ! -f ../../packages/reference/out/reference.sqlite ]; then
+  (cd ../.. && pnpm --filter @jle/reference run fetch && pnpm --filter @jle/reference build:db)
+fi
+
 name=$(node -p "require('./src-tauri/tauri.conf.json').productName")
 pnpm tauri build --bundles app
 

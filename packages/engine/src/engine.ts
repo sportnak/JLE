@@ -4,7 +4,8 @@ import { createScheduler, type Scheduler } from './model';
 import { typeOf } from './activities';
 import { currentStage, frontierItems, planCandidates, strandMinutesSince } from './planner';
 import { asHiragana, grade } from './grading';
-import { randomIds, systemClock, type Clock, type EventStore, type Ids, type Llm } from './ports';
+import { randomIds, systemClock, type Clock, type ContentStore, type Dictionary, type EventStore, type Ids, type Llm, type Tokenizer } from './ports';
+import { writeReading, type ReadingOutcome } from './content/reading';
 import type {
   ActivitySpec,
   Catalog,
@@ -17,6 +18,7 @@ import type {
   Stage,
   Status,
   Strand,
+  StoredContent,
 } from './types';
 
 export interface EngineOptions {
@@ -28,8 +30,13 @@ export interface EngineOptions {
   clock?: Clock;
   ids?: Ids;
   utcOffsetMinutes?: number;
-  /** For model-graded activities, when they arrive. Code-graded activities never receive it. */
+  /** For model-graded activities and generated content. Code-graded activities never receive it. */
   llm?: Llm;
+  /** The host's tokenizer and dictionary, for mapping content to items. */
+  tokenizer?: Tokenizer;
+  dictionary?: Dictionary;
+  /** Stored content (passages): written once, read back on every replay. */
+  contents?: ContentStore;
 }
 
 export interface ActivityView {
@@ -95,6 +102,9 @@ export interface StateSummary {
 export class Engine {
   private model!: LearnerModel;
   private events: InteractionEvent[] = [];
+  private contents: StoredContent[] = [];
+  private preparing: Promise<ReadingOutcome> | null = null;
+  private writing: Promise<unknown> = Promise.resolve();
   private readonly config: EngineConfig;
   private readonly clock: Clock;
   private readonly ids: Ids;
@@ -113,13 +123,14 @@ export class Engine {
   static async create(opts: EngineOptions): Promise<Engine> {
     const engine = new Engine(opts, await createScheduler(opts.config ?? DEFAULT_CONFIG));
     engine.events = await opts.store.load(opts.learnerId);
+    engine.contents = opts.contents ? await opts.contents.load(opts.learnerId) : [];
     engine.rebuild();
     return engine;
   }
 
   /** Recomputes all learner state from the event log. */
   rebuild() {
-    this.model = derive(this.events, this.opts.catalog, this.config, this.scheduler);
+    this.model = derive(this.events, this.opts.catalog, this.config, this.scheduler, this.contents);
   }
 
   get learner(): LearnerModel {
@@ -130,7 +141,14 @@ export class Engine {
     return this.events;
   }
 
-  private async append(partial: NewInteraction): Promise<Feedback> {
+  /** Writes one event at a time: each takes the next seq only after the previous one is stored and applied. */
+  private append(partial: NewInteraction): Promise<Feedback> {
+    const run = this.writing.then(() => this.appendNow(partial));
+    this.writing = run.catch(() => undefined);
+    return run;
+  }
+
+  private async appendNow(partial: NewInteraction): Promise<Feedback> {
     const event = {
       ...partial,
       id: this.ids.next(),
@@ -195,6 +213,70 @@ export class Engine {
     const activityId = this.ids.next();
     await this.append({ kind: 'activity_started', sessionId, activityId, spec: best.spec });
     return { done: false, activity: this.view(activityId, best.reason) };
+  }
+
+  /** Whether generated reading can run here: the host ports are wired and the model is reachable. */
+  get canWriteReading(): boolean {
+    return !!(this.opts.llm && this.opts.tokenizer && this.opts.dictionary && this.opts.contents);
+  }
+
+  /**
+   * Writes the next passage in the background, so it is ready when the planner wants one. At most one unread passage
+   * is kept (architecture §7.2: at most one activity pre-generated). Safe to call often: one run at a time.
+   */
+  prepareReading(sessionId?: string): Promise<ReadingOutcome> {
+    if (this.preparing) return this.preparing;
+    const { llm, tokenizer, dictionary, contents } = this.opts;
+    if (!llm || !tokenizer || !dictionary || !contents) return Promise.resolve({ status: 'skipped', reason: 'reading is not set up' });
+    if (this.model.unreadContent().length > 0) return Promise.resolve({ status: 'skipped', reason: 'a passage is already waiting' });
+    this.preparing = (async (): Promise<ReadingOutcome> => {
+      const outcome = await writeReading({ llm, tokenizer, dictionary }, this.model, {
+        learnerId: this.opts.learnerId,
+        now: this.clock.now(),
+        ids: this.ids,
+        ...(sessionId ? { sessionId } : {}),
+      });
+      if (outcome.status === 'ready') {
+        await contents.put(outcome.content);
+        this.contents.push(outcome.content);
+        this.model.addContent(outcome.content);
+      }
+      return outcome;
+    })()
+      .catch((e): ReadingOutcome => ({ status: 'failed', reason: String(e), tries: 0 }))
+      .finally(() => {
+        this.preparing = null;
+      });
+    return this.preparing;
+  }
+
+  /** Adds content that is already stored elsewhere (or demo content that is never stored) without writing it. */
+  adoptContent(c: StoredContent) {
+    if (this.contents.some((x) => x.id === c.id)) return;
+    this.contents.push(c);
+    this.model.addContent(c);
+  }
+
+  content(id: string): StoredContent | undefined {
+    return this.model.contents.get(id);
+  }
+
+  /** A word looked up while reading. Only the first lookup of a word in a passage counts. */
+  async lookup(activityId: string, tokenIndex: number): Promise<void> {
+    const a = this.model.activities.get(activityId);
+    if (!a || a.spec.type !== 'reading') throw new Error(`Activity ${activityId} is not a reading`);
+    if (a.outcome) return;
+    const raw = this.model.contents.get(a.spec.contentId)?.tokens[tokenIndex]?.itemId;
+    const itemId = raw && this.opts.catalog.resolve(raw);
+    if (!itemId || a.evidence.some((ev) => ev.itemId === itemId)) return;
+    await this.append({ kind: 'lookup', activityId, itemId, tokenIndex });
+  }
+
+  /** The passage is read. Words already met and not looked up count as weakly read. */
+  async finishReading(activityId: string, latencyMs: number): Promise<void> {
+    const a = this.model.activities.get(activityId);
+    if (!a || a.spec.type !== 'reading' || a.outcome) return;
+    await this.append({ kind: 'reading_done', activityId, latencyMs });
   }
 
   /** Starts an activity with a given spec instead of the planner's choice. For the demo page; graded like any other. */
@@ -331,6 +413,7 @@ export class Engine {
       this.opts.catalog,
       this.config,
       this.scheduler,
+      this.contents,
     );
     const isKnown = (m: LearnerModel, item: Item) =>
       item.skills.some((s) => ['known', 'maintained'].includes(m.state(item.id, s).status));
@@ -371,14 +454,16 @@ export class Engine {
   getLearnerState(): StateSummary {
     const counts: Record<Status, number> = { unseen: 0, introduced: 0, learning: 0, known: 0, maintained: 0, leech: 0 };
     let total = 0;
-    for (const c of this.opts.catalog.clusters()) for (const item of this.opts.catalog.inCluster(c.id)) total += item.skills.length;
+    // Words a passage brought in are not part of what is being learned until they are looked up and taught.
+    const listed = this.opts.catalog.clusters().filter((c) => !c.wantedOnly);
+    for (const c of listed) for (const item of this.opts.catalog.inCluster(c.id)) total += item.skills.length;
     let met = 0;
     for (const s of this.model.states.values()) {
       counts[s.status] += 1;
       met += 1;
     }
     counts.unseen += Math.max(0, total - met);
-    const placement = [...this.model.placement().values()].map((p) => ({
+    const placement = [...this.model.placement().values()].filter((p) => !p.cluster.wantedOnly).map((p) => ({
       cluster: p.cluster.id,
       track: p.cluster.track,
       label: p.cluster.label,

@@ -13,9 +13,11 @@ import type {
   Item,
   ItemSkillState,
   Skill,
+  StoredContent,
 } from './types';
 
-export type Outcome = 'correct' | 'wrong' | 'dont_know' | 'skip' | 'self_corrected';
+/** `read` is a finished passage: not an answer, so it never counts as right or wrong. */
+export type Outcome = 'correct' | 'wrong' | 'dont_know' | 'skip' | 'self_corrected' | 'read';
 
 export interface ActivityRecord {
   id: string;
@@ -71,6 +73,10 @@ export class LearnerModel {
   readonly firstOutcome = new Map<string, boolean>();
   readonly reviewOutcomes: { at: string; correct: boolean }[] = [];
   readonly evidence: EvidenceEvent[] = [];
+  /** Stored content by id: passages to read. */
+  readonly contents = new Map<string, StoredContent>();
+  /** Words looked up while reading and not yet taught, with when they were first looked up. */
+  readonly wanted = new Map<string, string>();
   utcOffsetMinutes = 0;
   lastSeq = 0;
   private placementCache: Map<string, ClusterPlacement> | null = null;
@@ -84,6 +90,19 @@ export class LearnerModel {
 
   item(id: string): Item | undefined {
     return this.catalog.item(id);
+  }
+
+  /** Adds stored content and the items its token map points at. Content is a stored output, never rewritten. */
+  addContent(c: StoredContent) {
+    if (this.contents.has(c.id)) return;
+    this.catalog.extend(c.items);
+    this.contents.set(c.id, c);
+  }
+
+  /** Content not yet read in any activity, oldest first. */
+  unreadContent(): StoredContent[] {
+    const read = new Set([...this.activities.values()].flatMap((a) => (a.spec.type === 'reading' ? [a.spec.contentId] : [])));
+    return [...this.contents.values()].filter((c) => !read.has(c.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   state(itemId: string, skill: Skill): ItemSkillState {
@@ -164,6 +183,47 @@ export class LearnerModel {
       case 'dispute':
       case 'flag':
         return { kind: 'none' };
+      case 'lookup':
+        this.onLookup(e);
+        return { kind: 'none' };
+      case 'reading_done':
+        this.onReadingDone(e);
+        return { kind: 'none' };
+    }
+  }
+
+  /** A lookup while reading: a weak recognition miss, and the word joins the words wanted for teaching. */
+  private onLookup(e: Extract<InteractionEvent, { kind: 'lookup' }>) {
+    const a = this.activities.get(e.activityId);
+    const item = this.catalog.item(e.itemId);
+    if (!a || a.spec.type !== 'reading' || !item || a.outcome || this.hints.flagged.has(a.id)) return;
+    if (a.evidence.some((ev) => ev.itemId === item.id)) return;
+    const s = this.state(item.id, 'read');
+    // A lookup on a word with a review card is a lapse; on any other word it only lowers p_known.
+    this.emit(a, item, 'read', 'negative', this.config.strengths.lookup, 0, e.at, s.card ? 'again' : null, 'reading', false);
+    // Looking a word up is not meeting it: a never-met word stays Unseen, so it is not counted as met afterwards.
+    if (s.status === 'unseen') this.states.set(key(item.id, 'read'), { ...this.state(item.id, 'read'), status: 'unseen' });
+    this.expose(item.id, e.at);
+    if (!this.wanted.has(item.id) && !item.skills.some((k) => this.state(item.id, k).card)) this.wanted.set(item.id, e.at);
+  }
+
+  /**
+   * Finishing a passage: every tracked word not looked up that the learner had already met counts as weakly read.
+   * A word never met says nothing either way, so it gets no evidence.
+   */
+  private onReadingDone(e: Extract<InteractionEvent, { kind: 'reading_done' }>) {
+    const a = this.activities.get(e.activityId);
+    if (!a || a.spec.type !== 'reading' || a.outcome || this.hints.flagged.has(a.id)) return;
+    const content = this.contents.get(a.spec.contentId);
+    a.outcome = 'read';
+    if (!content) return;
+    const looked = new Set(a.evidence.map((ev) => ev.itemId));
+    const ids = [...new Set(content.tokens.flatMap((t) => (t.itemId ? [this.catalog.resolve(t.itemId)] : [])))];
+    for (const id of ids) {
+      const item = this.catalog.item(id);
+      if (!item || looked.has(id)) continue;
+      if (this.state(id, 'read').status === 'unseen') continue;
+      this.emit(a, item, 'read', 'positive', this.config.strengths.readPast, 0, e.at, null, 'reading', false);
     }
   }
 
@@ -345,7 +405,7 @@ export class LearnerModel {
 
 /** The event with retired item ids replaced by current ones. The log itself is never rewritten. */
 export function canonical(e: InteractionEvent, catalog: Catalog): InteractionEvent {
-  if (e.kind === 'override') {
+  if (e.kind === 'override' || e.kind === 'lookup') {
     const itemId = catalog.resolve(e.itemId);
     return itemId === e.itemId ? e : { ...e, itemId };
   }
@@ -368,9 +428,11 @@ export function derive(
   catalog: Catalog,
   config: EngineConfig,
   scheduler: Scheduler,
+  contents: StoredContent[] = [],
 ): LearnerModel {
   const sorted = [...events].sort((a, b) => a.seq - b.seq);
   const model = new LearnerModel(catalog, config, scheduler, scanHints(sorted));
+  for (const c of contents) model.addContent(c);
   for (const e of sorted) model.apply(e);
   return model;
 }

@@ -2,6 +2,7 @@ import type { ActivitySpec, ActivityTypeId } from '../types';
 import { dictation } from './dictation';
 import { introduce } from './introduce';
 import { minimalPair } from './minimalPair';
+import { reading } from './reading';
 import { retrieval } from './retrieval';
 import type { ActivityType, Registry } from './types';
 
@@ -11,6 +12,7 @@ export const REGISTRY: Registry = {
   retrieval,
   minimal_pair: minimalPair,
   dictation,
+  reading,
 };
 
 export const activityTypes = (): ActivityType[] => Object.values(REGISTRY) as ActivityType[];

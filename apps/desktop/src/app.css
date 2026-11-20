@@ -648,3 +648,31 @@ rt {
   margin: 0;
   padding: 0;
 }
+
+/* Reading */
+.reading-text {
+  line-height: 2.4;
+  margin: 0;
+}
+.reading-word {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  border-bottom: 1px dotted var(--hairline);
+}
+.reading-word:hover,
+.reading-word.open {
+  background: var(--indigo-tint);
+}
+.reading-word.looked {
+  border-bottom-color: var(--indigo);
+}
+.reading-lookup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}

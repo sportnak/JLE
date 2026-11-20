@@ -12,6 +12,10 @@ export interface EngineConfig {
     override: number;
     minimalPairChoice: number;
     dictationItem: number;
+    /** Looking a word up while reading: a weak recognition miss. */
+    lookup: number;
+    /** Reading past a word already met without looking it up: weak recognition evidence. */
+    readPast: number;
   };
   modifiers: {
     supportDiscount: number;
@@ -48,8 +52,22 @@ export interface EngineConfig {
     confirmAfterDays: number;
   };
   timing: {
-    baseSeconds: Record<'introduce' | 'kana_to_reading' | 'ja_to_en' | 'en_to_ja' | 'minimal_pair' | 'dictation', number>;
+    baseSeconds: Record<'introduce' | 'kana_to_reading' | 'ja_to_en' | 'en_to_ja' | 'minimal_pair' | 'dictation' | 'reading', number>;
     perCharSeconds: number;
+    /** Reading is faster per character than typing an answer. */
+    readingPerCharSeconds: number;
+  };
+  reading: {
+    /** Words met (Introduced or further, for recognition) before generated reading starts. */
+    minMetWords: number;
+    /** Share of tracked words in a passage the learner must have met. */
+    coverage: number;
+    /** Different unmet words a passage may hold, besides its targets. */
+    maxNewWords: number;
+    /** Words a passage is written around. */
+    targets: number;
+    /** Tries after the first when a passage fails its checks. */
+    retries: number;
   };
   mix: {
     /** Recognition-Known word counts where stages 2, 3 and 4 begin. */
@@ -84,6 +102,8 @@ export const DEFAULT_CONFIG: EngineConfig = {
     override: 1.0,
     minimalPairChoice: 0.5,
     dictationItem: 0.5,
+    lookup: 0.3,
+    readPast: 0.2,
   },
   modifiers: {
     supportDiscount: 0.6,
@@ -120,8 +140,16 @@ export const DEFAULT_CONFIG: EngineConfig = {
     confirmAfterDays: 1,
   },
   timing: {
-    baseSeconds: { introduce: 6, kana_to_reading: 4, ja_to_en: 6, en_to_ja: 7, minimal_pair: 5, dictation: 8 },
+    baseSeconds: { introduce: 6, kana_to_reading: 4, ja_to_en: 6, en_to_ja: 7, minimal_pair: 5, dictation: 8, reading: 15 },
     perCharSeconds: 1,
+    readingPerCharSeconds: 0.4,
+  },
+  reading: {
+    minMetWords: 20,
+    coverage: 0.8,
+    maxNewWords: 3,
+    targets: 3,
+    retries: 2,
   },
   mix: {
     stageWords: [300, 800, 1700],

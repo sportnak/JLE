@@ -1,7 +1,7 @@
 import type { ActivityTypeId, ActivityView, Engine, Feedback, Item, SessionRecap } from '@jle/engine';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toKana } from 'wanakana';
-import { DictationPrompt, MinimalPairPrompt, SoundIntro, type ActivityProps } from './Activities';
+import { DictationPrompt, MinimalPairPrompt, ReadingPrompt, SoundIntro, type ActivityProps } from './Activities';
 import { useEnter } from './hooks';
 import { speak } from './host';
 import { FontChips, SpeedChoice, VoiceSelect } from './Controls';
@@ -32,6 +32,8 @@ export function SessionView({ engine, sessionId, examples, onExit, onKeepGoing }
   useEffect(() => {
     if (started.current) return;
     started.current = true;
+    // Write a passage in the background while the lesson runs; the planner offers it once it is stored.
+    void engine.prepareReading(sessionId);
     const last = session?.activityIds.at(-1);
     if (last && !engine.learner.activities.get(last)?.completed) setActivity(engine.view(last));
     else void advance();
@@ -101,6 +103,7 @@ export const RENDERERS: Record<ActivityTypeId, (p: RendererProps) => ReactNode> 
   retrieval: (p) => <Retrieval {...p} />,
   minimal_pair: (p) => <MinimalPairPrompt {...p} />,
   dictation: (p) => <DictationPrompt {...p} />,
+  reading: (p) => <ReadingPrompt {...p} />,
 };
 
 /** Speed, voice and font, changeable without leaving the lesson. Each applies at once. */

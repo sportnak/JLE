@@ -1,4 +1,4 @@
-import { Engine, MemoryEventStore, type ActivitySpec, type ActivityView, type Catalog, type Item } from '@jle/engine';
+import { Engine, MemoryEventStore, type ActivitySpec, type ActivityView, type Catalog, type ContentToken, type Item, type StoredContent } from '@jle/engine';
 import { useRef, useState } from 'react';
 import { RENDERERS } from './SessionView';
 
@@ -18,6 +18,40 @@ const kana = (c: Catalog) => c.inCluster('hiragana-basic');
 const withKanji = (c: Catalog) => vocab(c).filter((i) => i.written !== i.reading);
 const sounds = (c: Catalog) => c.inCluster('sound-features').filter((i) => c.pairsFor(i.id).length > 0);
 const pick = <T,>(list: T[], run: number): T | undefined => list[run % Math.max(1, list.length)];
+
+/** A fixed passage for the demo, so reading can be tried without an API key. Starter words are tracked. */
+const SAMPLE: [surface: string, reading: string, word?: string][] = [
+  ['私', 'わたし', '私'], ['は', 'は'], ['毎日', 'まいにち', '毎日'], ['コーヒー', 'こーひー', 'コーヒー'], ['を', 'を'],
+  ['飲み', 'のみ', '飲む'], ['ます', 'ます'], ['。', ''], ['今日', 'きょう', '今日'], ['は', 'は'], ['友達', 'ともだち', '友達'],
+  ['と', 'と'], ['学校', 'がっこう', '学校'], ['へ', 'へ'], ['行き', 'いき', '行く'], ['まし', 'まし'], ['た', 'た'], ['。', ''],
+];
+
+function sampleContent(catalog: Catalog): StoredContent {
+  const words = vocab(catalog);
+  let at = 0;
+  const tokens: ContentToken[] = SAMPLE.map(([surface, reading, word]) => {
+    const itemId = word ? words.find((w) => w.written === word)?.id : undefined;
+    const t = { surface, reading, begin: at, end: at + [...surface].length, ...(itemId ? { itemId } : {}) };
+    at = t.end;
+    return t;
+  });
+  const items = [...new Set(tokens.flatMap((t) => (t.itemId ? [t.itemId] : [])))].map((id) => catalog.item(id)!);
+  return {
+    id: 'demo:reading',
+    learnerId: 'demo',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    source: 'learner',
+    promptVersion: 'demo',
+    model: 'none',
+    title: '毎日',
+    text: tokens.map((t) => t.surface).join(''),
+    translation: 'I drink coffee every day. Today I went to school with a friend.',
+    tokens,
+    items,
+    targets: items.slice(0, 1).map((i) => i.id),
+    coverage: 1,
+  };
+}
 
 /** Every activity the app has, and each way it can be shown. */
 const DEMOS: Demo[] = [
@@ -89,6 +123,15 @@ const DEMOS: Demo[] = [
     },
   },
   {
+    key: 'reading',
+    title: 'Read a passage',
+    about: 'A short passage with furigana on words you don\'t know yet. Tap a word to look it up. In lessons, passages are written for your level.',
+    spec: (c) => {
+      const content = sampleContent(c);
+      return { type: 'reading', itemId: content.targets[0]!, purpose: 'practice', contentId: content.id, chars: [...content.text].length };
+    },
+  },
+  {
     key: 'dictation',
     title: 'Write what you hear',
     about: 'A short sentence of words you know is played; type it in kana.',
@@ -122,6 +165,7 @@ export function ActivityDemo({ catalog, examples, onBack }: { catalog: Catalog; 
       runs.current.set(d.key, run + 1);
       const spec = d.spec(catalog, run);
       if (!spec) return setError(`Nothing in the catalog to show "${d.title}" with.`);
+      if (spec.type === 'reading') demo.current.engine.adoptContent(sampleContent(catalog));
       setOpen({ title: d.title, activity: await demo.current.engine.startActivity(demo.current.sessionId, spec, 'demo') });
     } catch (e) {
       setError(String(e));

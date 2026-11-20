@@ -20,7 +20,8 @@ function sessionHistory(acts: ActivityRecord[]): Map<string, ActivityRecord[]> {
   return byItem;
 }
 
-const attempt = (a: ActivityRecord) => a.spec.type !== 'introduce';
+/** An activity with an answer. A passage is read, not answered, so it is neither right nor wrong. */
+const attempt = (a: ActivityRecord) => a.spec.type !== 'introduce' && a.spec.type !== 'reading';
 const missed = (a: ActivityRecord) => attempt(a) && (a.outcome === 'wrong' || a.outcome === 'dont_know');
 const right = (a: ActivityRecord) => attempt(a) && (a.outcome === 'correct' || a.outcome === 'self_corrected');
 const skillOf = (a: ActivityRecord) => typeOf(a.spec).skillOf(a.spec);
@@ -108,7 +109,10 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
   ).length;
   if (newSoFar < sessionBudget(model, sessionActs, now, newSoFar)) {
     const teach = teachMode(sessionActs, cfg.teachModeDontKnows);
-    frontierPicks(model, metThisSession).forEach((item, i) => {
+    // Words looked up while reading come first, and are taught: the lookup already showed they are unknown.
+    const wanted = wantedPicks(model, metThisSession);
+    wanted.forEach((item, i) => need(item, primarySkill(item), 'probe', 34 - i, 'looked up while reading', true));
+    frontierPicks(model, new Set([...metThisSession, ...wanted.map((w) => w.id)])).forEach((item, i) => {
       // Kana are shown before they are tried; sound features are always tried first.
       const probe = item.type === 'sound' || (!teach && model.prior(item.id) >= cfg.probeThreshold);
       need(item, primarySkill(item), 'probe', 30 - i, probe ? 'new, probably known' : 'new', !probe);
@@ -177,7 +181,7 @@ export function strandMinutesSince(model: LearnerModel, since: Date): Record<Str
  */
 export function sessionBudget(model: LearnerModel, acts: ActivityRecord[], now: Date, newSoFar: number): number {
   const recent = acts
-    .filter((a) => a.spec.type !== 'introduce' && a.spec.purpose !== 'placement' && a.outcome && a.outcome !== 'skip')
+    .filter((a) => a.spec.type !== 'introduce' && a.spec.type !== 'reading' && a.spec.purpose !== 'placement' && a.outcome && a.outcome !== 'skip')
     .slice(-8);
   if (recent.length >= 5) {
     const accuracy = recent.filter(right).length / recent.length;
@@ -208,6 +212,16 @@ function frontierPicks(model: LearnerModel, exclude: Set<string>): Item[] {
   const merged: Item[] = [];
   for (let i = 0; perTrack.some((l) => i < l.length); i++) for (const l of perTrack) if (l[i]) merged.push(l[i]!);
   return merged.slice(0, 8);
+}
+
+/** Untaught words looked up while reading, oldest lookup first, whose kana are known. */
+function wantedPicks(model: LearnerModel, exclude: Set<string>, limit = 2): Item[] {
+  return [...model.wanted.entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([id]) => model.item(id))
+    .filter((i): i is Item => !!i && !exclude.has(i.id))
+    .filter((i) => i.skills.every((s) => isUntaught(model, i.id, s)) && prerequisitesMet(model, i))
+    .slice(0, limit);
 }
 
 /** True until basic hiragana is placed known or mostly learned. */
@@ -280,6 +294,7 @@ function frontierWalk(model: LearnerModel, exclude: Set<string>, clustersPerTrac
   const taken = new Map<string, number>();
   const clusters = model.catalog.clusters().sort((a, b) => a.order - b.order);
   for (const cluster of clusters) {
+    if (cluster.wantedOnly) continue;
     if ((taken.get(cluster.track) ?? 0) >= clustersPerTrack || !clusterReady(model, cluster.id)) continue;
     const found = model.catalog
       .inCluster(cluster.id)
@@ -315,7 +330,7 @@ export function clusterReady(model: LearnerModel, clusterId: string): boolean {
 
 function nextPlacementProbe(model: LearnerModel, sessionId: string, exclude: Set<string>): Item | null {
   const placement = model.placement();
-  for (const [name, track] of groupByTrack(model.catalog.clusters())) {
+  for (const [name, track] of groupByTrack(model.catalog.clusters().filter((c) => !c.wantedOnly))) {
     if (name === 'sound') continue;
     const cluster = nextProbeCluster(track, placement);
     if (!cluster || !clusterReady(model, cluster.id)) continue;

@@ -1,7 +1,7 @@
 import type { Engine } from '@jle/engine';
 import { useEffect, useState } from 'react';
 import { LEARNER_ID } from './App';
-import { exportLog, inTauri, listVoices, resetLog, speak, voiceInfo, voiceTerms, type VoiceInfo, type VoiceOption } from './host';
+import { apiKeyStatus, clearApiKey, exportLog, inTauri, listVoices, llmUsage, resetLog, setApiKey, speak, voiceInfo, voiceTerms, type RouteUsage, type VoiceInfo, type VoiceOption } from './host';
 import { SpeedChoice } from './Controls';
 import { FONTS, getFont, getVoice, setFont, setVoice, type FontChoice } from './prefs';
 
@@ -25,6 +25,7 @@ export function Settings({ engine, onReset, onDemo }: { engine: Engine; onReset:
 
       <VoiceSetting />
       <FontSetting />
+      <ModelSetting onChange={onReset} />
 
       <div className="setting">
         <div>
@@ -255,6 +256,98 @@ function FontSetting() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** The Anthropic API key for generated reading, and what the model has cost so far. The key stays in the keychain. */
+function ModelSetting({ onChange }: { onChange: () => void }) {
+  const [set, setSet] = useState<boolean | null>(null);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<RouteUsage[]>([]);
+
+  useEffect(() => {
+    apiKeyStatus().then(setSet, () => setSet(false));
+    llmUsage().then(setUsage, () => setUsage([]));
+  }, []);
+
+  if (!inTauri) {
+    return (
+      <div className="setting">
+        <div>
+          <h2 className="t-heading">Generated reading</h2>
+          <p className="t-body jle-muted">Passages written for you need the desktop app.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const save = async () => {
+    setError(null);
+    try {
+      await setApiKey(draft.trim());
+      setDraft('');
+      setSet(true);
+      onChange();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const remove = async () => {
+    await clearApiKey();
+    setSet(false);
+    onChange();
+  };
+  const cost = usage.reduce((sum, u) => sum + u.costUsd, 0);
+  const calls = usage.reduce((sum, u) => sum + u.calls, 0);
+
+  return (
+    <div className="setting stacked">
+      <div>
+        <h2 className="t-heading">Generated reading</h2>
+        <p className="t-body jle-muted">
+          Lessons include a short passage written for your level by Claude. It needs your Anthropic API key, which is
+          kept in the macOS keychain and never shown again. Only your level and the words a passage is built around are
+          sent, never your list of known words.
+        </p>
+      </div>
+      {set ? (
+        <div className="jle-row">
+          <span className="t-body">An API key is saved.</span>
+          <button className="jle-btn" onClick={() => void remove()}>
+            Remove it
+          </button>
+        </div>
+      ) : (
+        <form
+          className="jle-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (draft.trim()) void save();
+          }}
+        >
+          <input
+            className="jle-input"
+            type="password"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="sk-ant-…"
+            aria-label="Anthropic API key"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button type="submit" className="jle-btn jle-btn-primary" disabled={!draft.trim()}>
+            Save key
+          </button>
+        </form>
+      )}
+      {error && <p className="t-body-sm jle-wrong">{error}</p>}
+      {calls > 0 && (
+        <p className="t-body-sm jle-muted">
+          {calls} model {calls === 1 ? 'call' : 'calls'} so far, about ${cost.toFixed(2)} in total.
+        </p>
+      )}
     </div>
   );
 }

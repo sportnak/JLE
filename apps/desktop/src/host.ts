@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { EventStore, InteractionEvent } from '@jle/engine';
+import type { ContentStore, Dictionary, DictionaryEntry, EventStore, InteractionEvent, Llm, LlmResult, StoredContent, Token, Tokenizer } from '@jle/engine';
 import { LocalStorageEventStore } from './storage';
 import { getSpeed, getVoice } from './prefs';
 
@@ -104,21 +104,45 @@ export async function voiceTerms(uuid: string): Promise<string> {
   return invoke<string>('voice_terms', { uuid });
 }
 
-/** A token from Sudachi in the host. Offsets are in characters; `reading` is hiragana. */
-export interface Token {
-  surface: string;
-  dictionaryForm: string;
-  normalizedForm: string;
-  reading: string;
-  /** Six part-of-speech levels; the last two are conjugation type and form, or `*`. */
-  pos: string[];
-  begin: number;
-  end: number;
-  oov: boolean;
+/** Morphological analysis in the host (Sudachi). Needs the desktop app and its dictionary. */
+export const tokenizer: Tokenizer = {
+  analyze: (text) => invoke<Token[]>('analyze', { text, mode: 'C' }),
+};
+
+/** JMdict lookups in the host's bundled reference database. */
+export const dictionary: Dictionary = {
+  lookup: (keys) => invoke<(DictionaryEntry | null)[]>('dictionary_lookup', { keys }),
+};
+
+/** The model, through the host. The API key never leaves the host. */
+export const llm: Llm = {
+  call: (route, request) => invoke<LlmResult>('llm_call', { request: { route, ...request } }),
+};
+
+/** Stored passages, kept in the host's database next to the log. */
+export const contentStore: ContentStore = {
+  load: (learnerId) => invoke<StoredContent[]>('content_load', { learnerId }),
+  put: (content) => invoke<void>('content_put', { content }),
+};
+
+export async function apiKeyStatus(): Promise<boolean> {
+  if (!inTauri) return false;
+  return (await invoke<{ set: boolean }>('api_key_status')).set;
 }
 
-/** Morphological analysis. Needs the desktop app and its Sudachi dictionary. */
-export async function analyze(text: string, mode: 'A' | 'B' | 'C' = 'C'): Promise<Token[]> {
-  if (!inTauri) throw new Error('The tokenizer needs the desktop app.');
-  return invoke<Token[]>('analyze', { text, mode });
+export const setApiKey = (key: string) => invoke<void>('api_key_set', { key });
+export const clearApiKey = () => invoke<void>('api_key_clear');
+
+export interface RouteUsage {
+  route: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
+}
+
+export async function llmUsage(): Promise<RouteUsage[]> {
+  if (!inTauri) return [];
+  return invoke<RouteUsage[]>('llm_usage');
 }

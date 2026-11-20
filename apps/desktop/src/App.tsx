@@ -6,7 +6,7 @@ import { Home } from './Home';
 import { Progress } from './Progress';
 import { SessionView } from './SessionView';
 import { Settings } from './Settings';
-import { store } from './host';
+import { apiKeyStatus, contentStore, dictionary, inTauri, llm, store, tokenizer } from './host';
 import { exampleWords } from './ui';
 
 export const LEARNER_ID = 'local';
@@ -27,7 +27,9 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const engine = await Engine.create({ catalog, store, learnerId: LEARNER_ID });
+      // Generated reading needs the host (tokenizer, dictionary, stored content) and an API key for the model.
+      const reading = inTauri ? { tokenizer, dictionary, contents: contentStore, ...((await apiKeyStatus()) ? { llm } : {}) } : {};
+      const engine = await Engine.create({ catalog, store, learnerId: LEARNER_ID, ...reading });
       if (import.meta.env.DEV) (window as unknown as { jle: Engine }).jle = engine;
       setEngine(engine);
       setVersion((v) => v + 1);

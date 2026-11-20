@@ -10,3 +10,14 @@ export { stageFor, strandTargets, strandPull, overClosedCap, STRANDS } from './s
 export { REGISTRY, activityTypes, typeOf, eligiblePairs, readyForDictation } from './activities';
 export type { ActivityType, Candidate, GradeContext, Need, PlanContext } from './activities';
 export { inflections, type Pos } from './conjugate';
+export {
+  EXTRA_CLUSTER,
+  READING_PROMPT_VERSION,
+  checkPassage,
+  isTracked,
+  mapTokens,
+  readingRequest,
+  readingTargets,
+  writeReading,
+  type ReadingOutcome,
+} from './content/reading';

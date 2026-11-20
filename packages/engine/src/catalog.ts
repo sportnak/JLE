@@ -1,3 +1,4 @@
+import { EXTRA_CLUSTER } from './content/reading';
 import type { Catalog, CatalogData, Cluster, DictationSentence, Item, ItemEdge, MinimalPair } from './types';
 
 function group<T>(rows: T[], keyOf: (row: T) => string[]): Map<string, T[]> {
@@ -40,5 +41,19 @@ export function memoryCatalog(data: CatalogData, computeEdges?: (item: Item) => 
     pair: (id): MinimalPair | undefined => pairs.get(id),
     pairsFor: (id) => pairsBy.get(id) ?? [],
     sentencesWith: (id) => sentencesBy.get(id) ?? [],
+    extend(added) {
+      for (const raw of added) {
+        const id = aliases.get(raw.id) ?? raw.id;
+        if (items.has(id)) continue;
+        // Anything not already listed is a word from a passage, whatever group a stored copy says: it goes to the
+        // extra group, taught only when looked up, so a word later dropped from the list cannot come back into a band.
+        const item: Item = { ...raw, id, cluster: EXTRA_CLUSTER };
+        items.set(id, item);
+        const list = members.get(item.cluster) ?? [];
+        list.push(item);
+        list.sort((a, b) => a.order - b.order);
+        members.set(item.cluster, list);
+      }
+    },
   };
 }

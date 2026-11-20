@@ -350,7 +350,7 @@ With no network or no key, the engine still serves retrieval prompts, kana study
 | 1 | Event log, evidence, FSRS, replay, placement, planner, kana, retrieval prompts, Tauri shell, SQLite log, design system | Built, with a hand-written 130-word starter list |
 | 1b | `reference.sqlite` from JMdict and KANJIDIC2, `Catalog` port, sparse state at scale, Sudachi in the host, frequency-band placement. Retire the starter list | Built. The 130 starter words stay as the first bands, then 200 bands of 100 by frequency. Kanji items and word → kanji edges wait until kanji are taught |
 | 1c | Activity registry, stage-based mix, interleaving, VOICEVOX lesson voice. Minimal pairs and dictation, which stage 1 relies on | Built |
-| 2 | `addContent` and reading your own text first, then generated reading through the pipeline, hinge questions, embedded review. Contrast choice, transformation, input highlighting, sentence mining. Grammar data and the approval path, `llm_call` logging | |
+| 2 | Generated reading through the pipeline first (decided 2026-11-20), then `addContent` and your own text, hinge questions, embedded review. Contrast choice, transformation, input highlighting, sentence mining. Grammar data and the approval path, `llm_call` logging | Generated reading, `llm_call` logging, stored content and lookups built (`packages/engine/src/content/reading.ts`) |
 | 3 | Free writing with the grading contract, then tutor conversation, situation prompts, task role-play, retelling, error hunt from your own error records | |
 | 4 | Fast track, disguised probes, full cold start, cluster advance | |
 | 5 | Graded listening, listen-read-listen, narrow reading, shadowing, fluency activities, timed retelling (with voice), weekly rollup, pinned goals | |

@@ -326,3 +326,125 @@ export function DictationPrompt({ engine, activity, onNext }: ActivityProps) {
     </div>
   );
 }
+
+const HAS_KANJI = /[㐀-鿿豈-﫿々〆]/;
+
+/**
+ * A passage written for the learner. Words not yet known get furigana; tapping a word shows its reading and meaning
+ * and logs a lookup (a weak miss that queues the word for teaching). Done credits the words already met.
+ */
+export function ReadingPrompt({ engine, activity, onNext }: ActivityProps) {
+  const spec = activity.spec;
+  const content = spec.type === 'reading' ? engine.content(spec.contentId) : undefined;
+  const [open, setOpen] = useState<number | null>(null);
+  const [looked, setLooked] = useState<Set<number>>(new Set());
+  // A passage reopened after Done (the lesson was left before Next) stays done: no more lookups are logged.
+  const [done, setDone] = useState(() => engine.learner.activities.get(activity.activityId)?.outcome != null);
+  const shownAt = useRef(performance.now());
+  useEnter(done ? onNext : null);
+
+  if (!content) {
+    return (
+      <div className="jle-stack">
+        <p className="t-body">This passage could not be found.</p>
+        <NextButton onNext={onNext} />
+      </div>
+    );
+  }
+
+  const known = (itemId: string | undefined) => {
+    if (!itemId) return false;
+    const s = engine.learner.state(itemId, 'read').status;
+    return s === 'known' || s === 'maintained';
+  };
+  const spoken = content.tokens.map((t) => t.reading || t.surface).join('');
+  const tapped = open !== null ? content.tokens[open] : undefined;
+  const tappedItem = tapped?.itemId ? engine.learner.item(tapped.itemId) : undefined;
+
+  const tap = async (i: number) => {
+    setOpen((o) => (o === i ? null : i));
+    if (looked.has(i) || done) return;
+    setLooked((s) => new Set(s).add(i));
+    await engine.lookup(activity.activityId, i);
+  };
+
+  const finish = async () => {
+    if (done) return;
+    setOpen(null);
+    await engine.finishReading(activity.activityId, Math.round(performance.now() - shownAt.current));
+    setDone(true);
+  };
+
+  return (
+    <div className="jle-stack reading">
+      <span className="jle-label">READ</span>
+      <h2 className="t-heading" lang="ja">
+        {content.title}
+      </h2>
+      <p className="t-reading reading-text" lang="ja">
+        {content.tokens.map((t, i) => {
+          const furigana = HAS_KANJI.test(t.surface) && !known(t.itemId) && t.reading && t.reading !== t.surface;
+          const body = furigana ? (
+            <ruby>
+              {t.surface}
+              <rt className="t-furigana">{t.reading}</rt>
+            </ruby>
+          ) : (
+            t.surface
+          );
+          if (!t.itemId) return <span key={i}>{body}</span>;
+          return (
+            <button
+              key={i}
+              type="button"
+              className={`reading-word ${looked.has(i) ? 'looked' : ''} ${open === i ? 'open' : ''}`}
+              aria-expanded={open === i}
+              onClick={() => void tap(i)}
+            >
+              {body}
+            </button>
+          );
+        })}
+      </p>
+      {tapped && (
+        <div className="jle-note jle-note-neutral reading-lookup" role="status">
+          <span className="t-reading" lang="ja">
+            {tappedItem?.written ?? tapped.surface}
+          </span>
+          {(tappedItem?.reading ?? tapped.reading) && (
+            <span className="t-body-sm" lang="ja">
+              {tappedItem?.reading ?? tapped.reading}
+            </span>
+          )}
+          <span className="t-body-sm">{tappedItem?.gloss.slice(0, 4).join('; ')}</span>
+          <PlayButton text={tappedItem?.reading ?? tapped.reading} />
+        </div>
+      )}
+      <div className="jle-row">
+        <PlayButton text={spoken} label="Listen" />
+      </div>
+      {!done ? (
+        <>
+          <p className="t-body-sm jle-muted">Tap any word you don't know. When you've read it, press Done.</p>
+          <button className="jle-btn jle-btn-primary wide-btn" onClick={() => void finish()}>
+            Done
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="jle-note jle-note-good" role="status">
+            <b>In English.</b>
+            <span>{content.translation}</span>
+          </div>
+          {looked.size > 0 && (
+            <p className="t-body-sm jle-muted">
+              The words you looked up will be taught in a coming lesson.
+            </p>
+          )}
+          <NextButton onNext={onNext} />
+          <Flag engine={engine} activityId={activity.activityId} onNext={onNext} />
+        </>
+      )}
+    </div>
+  );
+}

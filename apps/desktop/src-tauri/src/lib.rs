@@ -1,4 +1,8 @@
+mod apikey;
+mod content;
+mod dictionary;
 mod events;
+mod llm;
 mod tokenizer;
 mod voice;
 mod voicevox;
@@ -25,6 +29,7 @@ pub fn run() {
       app.manage(voice::Voice::default());
       app.manage(voicevox::Engine::default());
       app.manage(Arc::new(tokenizer::Tokenizer::default()));
+      app.manage(dictionary::Dictionary::default());
       voicevox::start_if_needed(app.handle());
       Ok(())
     })
@@ -39,6 +44,14 @@ pub fn run() {
       voice::voices,
       voice::voice_terms,
       tokenizer::analyze,
+      apikey::api_key_set,
+      apikey::api_key_status,
+      apikey::api_key_clear,
+      llm::llm_call,
+      llm::llm_usage,
+      content::content_put,
+      content::content_load,
+      dictionary::dictionary_lookup,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

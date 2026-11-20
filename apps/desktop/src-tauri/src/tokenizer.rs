@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use sudachi::analysis::stateful_tokenizer::StatefulTokenizer;
 use sudachi::config::Config;
 use sudachi::dic::dictionary::JapaneseDictionary;
-use sudachi::prelude::{Mode, MorphemeList};
+use sudachi::prelude::{Mode, MorphemeList, MorphemeView};
 use sudachi::sentence_splitter::{SentenceSplitter, SplitSentences};
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -17,8 +17,10 @@ pub struct Token {
   pub surface: String,
   pub dictionary_form: String,
   pub normalized_form: String,
-  /// Hiragana.
+  /// Hiragana, as written in the text (食べ → たべ).
   pub reading: String,
+  /// Hiragana reading of the dictionary form (食べ → たべる), for dictionary lookup.
+  pub dictionary_reading: String,
   /// Sudachi's six part-of-speech levels; levels 5 and 6 are conjugation type and form, or `*`.
   pub pos: Vec<String>,
   /// Character offsets into the input.
@@ -103,7 +105,12 @@ pub fn analyze_with(dict: &Arc<JapaneseDictionary>, text: &str, mode: Mode) -> R
     tokenizer.do_tokenize().map_err(|e| e.to_string())?;
     morphemes.collect_results(&mut tokenizer).map_err(|e| e.to_string())?;
     for m in morphemes.iter() {
+      let dictionary_reading = match m.dictionary_form_morpheme() {
+        Ok(d) => to_hiragana(d.reading_form()),
+        Err(_) => to_hiragana(m.reading_form()),
+      };
       out.push(Token {
+        dictionary_reading,
         surface: m.surface().to_string(),
         dictionary_form: m.dictionary_form().to_string(),
         normalized_form: m.normalized_form().to_string(),
@@ -214,6 +221,8 @@ mod tests {
     let d = need_dict!();
     let tokens = analyze_with(&d, "食べられなかった", Mode::C).unwrap();
     assert_eq!(tokens[0].dictionary_form, "食べる");
+    assert_eq!(tokens[0].dictionary_reading, "たべる");
+    assert_eq!(tokens[0].reading, "たべ");
     assert!(tokens[0].pos[4].starts_with("下一段"), "{:?}", tokens[0].pos);
   }
 

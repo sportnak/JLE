@@ -1,4 +1,4 @@
-import { memoryCatalog, type Catalog, type CatalogData, type Cluster, type DictationSentence, type Item, type ItemEdge, type MinimalPair } from '@jle/engine';
+import { EXTRA_CLUSTER, memoryCatalog, type Catalog, type CatalogData, type Cluster, type DictationSentence, type Item, type ItemEdge, type MinimalPair } from '@jle/engine';
 import { FEATURES, PAIRS, pairId } from '@jle/sounds';
 import { toHiragana } from 'wanakana';
 import { kanaCatalog, kanaId, moraeOf } from './kana';
@@ -77,6 +77,9 @@ export function buildCatalogData(): CatalogData {
       ...(pos ? { pos } : {}),
     });
   });
+
+  // Words beyond the list, brought in by passages; taught only when looked up.
+  clusters.push({ id: EXTRA_CLUSTER, track: 'reading', order: 100_000, label: 'Words from your reading', wantedOnly: true });
 
   const sounds = soundCatalog(kanaIds);
   return {

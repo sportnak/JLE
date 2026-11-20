@@ -284,7 +284,7 @@ function other0(engine: Engine): string {
 
 describe('code-graded activities never reach the model', () => {
   it('runs sessions with every code-graded type and never calls or sees the Llm port', async () => {
-    const llm: Llm = { call: vi.fn(async () => ({ output: null, stopReason: 'end_turn' })) };
+    const llm: Llm = { call: vi.fn(async () => ({ output: null, stopReason: 'end_turn', model: 'none', callId: 'none' })) };
     const code = activityTypes().filter((t) => t.grading === 'code');
     const contexts: object[] = [];
     const respond = code.filter((t) => t.respond).map((t) => {
@@ -307,7 +307,9 @@ describe('code-graded activities never reach the model', () => {
       const { clock, engine } = await setup(llm);
       const knows = stageOneLearner(engine);
       const seen = (await days(engine, clock, knows)).flatMap((x) => x.seen);
-      for (const t of code) expect(seen.some((v) => v.spec.type === t.id), t.id).toBe(true);
+      // Reading needs a stored passage, so it can't appear here; reading.integration.test.ts runs it. Its planner hook is
+      // still wrapped above, so it is still checked for never reaching the model.
+      for (const t of code.filter((x) => x.id !== 'reading')) expect(seen.some((v) => v.spec.type === t.id), t.id).toBe(true);
     } finally {
       [...respond, ...plan].forEach((undo) => undo());
     }
