@@ -9,10 +9,12 @@
   "prerequisites": [],
   "confusables": [],
   "matcher": [
-    {
-      "form": "te",
-      "pos": "動詞"
-    }
+    [
+      {
+        "form": "te",
+        "pos": "動詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

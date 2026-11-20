@@ -11,10 +11,12 @@
     "de-location"
   ],
   "matcher": [
-    {
-      "surface": "に",
-      "pos": "助詞"
-    }
+    [
+      {
+        "surface": "に",
+        "pos": "助詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

@@ -11,10 +11,12 @@
     "wa-topic"
   ],
   "matcher": [
-    {
-      "surface": "も",
-      "pos": "助詞"
-    }
+    [
+      {
+        "surface": "も",
+        "pos": "助詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

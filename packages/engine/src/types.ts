@@ -62,7 +62,7 @@ export interface TokenPattern {
   lemma?: string;
   /** First part-of-speech level, as Sudachi gives it (助詞, 動詞, …). */
   pos?: string;
-  /** Conjugation form the token must be in, e.g. `te`. */
+  /** `te`: a verb or adjective in its 連用形 followed by the particle て or で, both taken as one step. */
   form?: string;
 }
 
@@ -85,7 +85,8 @@ export interface GrammarPoint {
   tags: { genki?: number; jlpt?: string };
   prerequisites: string[];
   confusables: string[];
-  matcher: TokenPattern[];
+  /** Alternatives; each is a sequence of steps matched against consecutive tokens. */
+  matcher: TokenPattern[][];
   factSheet: { status: 'draft' | 'approved'; approvedBy?: string; approvedAt?: string; body: string };
   contrasts: GrammarContrast[];
 }
@@ -139,6 +140,10 @@ export interface ContentToken {
   begin: number;
   end: number;
   itemId?: string;
+  /** Dictionary form, first part-of-speech level and conjugation form, for matching grammar at read time. */
+  lemma?: string;
+  pos?: string;
+  form?: string;
 }
 
 /** A question on a passage. It hinges on one word when `itemId` is set: answering needs that word understood. */

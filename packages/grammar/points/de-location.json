@@ -11,10 +11,12 @@
     "ni-location"
   ],
   "matcher": [
-    {
-      "surface": "で",
-      "pos": "助詞"
-    }
+    [
+      {
+        "surface": "で",
+        "pos": "助詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

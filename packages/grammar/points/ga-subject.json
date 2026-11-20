@@ -13,10 +13,12 @@
     "wa-topic"
   ],
   "matcher": [
-    {
-      "surface": "が",
-      "pos": "助詞"
-    }
+    [
+      {
+        "surface": "が",
+        "pos": "助詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

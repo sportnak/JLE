@@ -11,9 +11,11 @@
     "na-adjective"
   ],
   "matcher": [
-    {
-      "pos": "形容詞"
-    }
+    [
+      {
+        "pos": "形容詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

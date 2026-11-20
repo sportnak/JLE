@@ -4,7 +4,8 @@ import { createScheduler, type Scheduler } from './model';
 import { typeOf } from './activities';
 import { currentStage, frontierItems, planCandidates, strandMinutesSince } from './planner';
 import { asHiragana, grade } from './grading';
-import { randomIds, systemClock, type Clock, type ContentStore, type Dictionary, type EventStore, type Ids, type Llm, type Tokenizer } from './ports';
+import { randomIds, systemClock, type Clock, type ContentStore, type Dictionary, type EventStore, type ExplanationStore, type Ids, type Llm, type Tokenizer } from './ports';
+import { explainRequest, explanationKey, EXPLAIN_PROMPT_VERSION } from './content/explain';
 import { ownTextContent } from './content/ownText';
 import { pickLibraryPassage, writeReading, type LibraryPassage, type ReadingOutcome } from './content/reading';
 import type {
@@ -40,6 +41,8 @@ export interface EngineOptions {
   contents?: ContentStore;
   /** Pre-written passages for reading without the model. */
   library?: LibraryPassage[];
+  /** Stored explanations of mistakes, written once from approved fact sheets. */
+  explanations?: ExplanationStore;
 }
 
 export interface ActivityView {
@@ -290,6 +293,36 @@ export class Engine {
   async unkeepSentence(contentId: string, begin: number): Promise<void> {
     if (!this.model.kept.has(`${contentId}:${begin}`)) return;
     await this.append({ kind: 'unkeep_sentence', contentId, begin });
+  }
+
+  /** Whether a wrong contrast choice can be explained here: the model and the explanation store are wired. */
+  get canExplain(): boolean {
+    return !!(this.opts.llm && this.opts.explanations);
+  }
+
+  /**
+   * Why a contrast choice was wrong, from the point's approved fact sheet: read from the store when this mistake was
+   * explained before, otherwise written once by the model and stored. Explanations change no learner state.
+   */
+  async explain(activityId: string): Promise<string> {
+    const a = this.model.activities.get(activityId);
+    if (!a || a.spec.type !== 'contrast' || a.outcome !== 'wrong') throw new Error('Only a wrong contrast choice is explained.');
+    const spec = a.spec;
+    const point = this.opts.catalog.grammar().find((p) => p.id === spec.pointId && p.version === spec.version);
+    const c = point?.contrasts[spec.example];
+    if (!point || !c) throw new Error('This grammar point has changed since; its explanation is no longer available.');
+    const wrong = a.answers.at(-1) ?? '';
+    const key = explanationKey(point, spec.example, wrong);
+    const { llm, explanations } = this.opts;
+    if (!explanations) throw new Error('Explanations are not set up.');
+    const stored = await explanations.get(key);
+    if (stored) return stored.text;
+    if (!llm) throw new Error('Explanations need an API key.');
+    const result = await llm.call('explain', explainRequest(point, c, wrong));
+    const text = (result.output as { explanation?: unknown } | null)?.explanation;
+    if (typeof text !== 'string' || !text.trim()) throw new Error('The explanation came back empty.');
+    await explanations.put({ key, createdAt: this.clock.now().toISOString(), promptVersion: EXPLAIN_PROMPT_VERSION, model: result.model, text: text.trim() });
+    return text.trim();
   }
 
   /** Whether texts can be added here (the desktop app's tokenizer and dictionary). */

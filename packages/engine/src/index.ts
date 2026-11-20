@@ -28,3 +28,5 @@ export {
 } from './content/reading';
 export { splitText, ownTextContent } from './content/ownText';
 export { sentencesOf, type KeptSentence, type Sentence } from './content/sentences';
+export { matchGrammar, type GrammarSpan } from './content/grammar';
+export { explainRequest, explanationKey, EXPLAIN_PROMPT_VERSION } from './content/explain';

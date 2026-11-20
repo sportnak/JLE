@@ -847,10 +847,47 @@ export function ContrastPrompt({ engine, activity, onNext }: ActivityProps) {
               </p>
             </div>
           )}
+          {feedback.kind === 'incorrect' && engine.canExplain && <ExplainMistake engine={engine} activityId={activity.activityId} />}
           <NextButton onNext={onNext} />
           <Flag engine={engine} activityId={activity.activityId} onNext={onNext} />
         </>
       )}
+    </div>
+  );
+}
+
+/** Asks for an explanation of this mistake, written from the approved fact sheet (or read back if written before). */
+function ExplainMistake({ engine, activityId }: { engine: Engine; activityId: string }) {
+  const [text, setText] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (text) {
+    return (
+      <p className="t-body explanation">
+        <JaRun text={text} />
+      </p>
+    );
+  }
+  return (
+    <div className="jle-row">
+      <button
+        className="jle-btn"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            setText(await engine.explain(activityId));
+          } catch (e) {
+            setError(String(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? 'Explaining…' : 'Explain my mistake'}
+      </button>
+      {error && <span className="t-body-sm jle-wrong">{error}</span>}
     </div>
   );
 }

@@ -9,10 +9,12 @@
   "prerequisites": [],
   "confusables": [],
   "matcher": [
-    {
-      "surface": "の",
-      "pos": "助詞"
-    }
+    [
+      {
+        "surface": "の",
+        "pos": "助詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

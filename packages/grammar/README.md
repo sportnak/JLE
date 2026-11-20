@@ -28,7 +28,7 @@ Approval is a reviewed edit in this repo, made by someone who reads Japanese wel
 | `id`, `version` | Stable id; raise the version when the fact sheet or contrasts change after approval. |
 | `label`, `tags` | Shown to the learner; Genki chapter and JLPT level order the points. |
 | `prerequisites`, `confusables` | Ids of other points. A point is introduced only after its prerequisites have been met. |
-| `matcher` | Declarative token pattern (surface, lemma, pos, form) for finding the point in passages. Not used yet. |
+| `matcher` | How to find the point in a passage: a list of alternatives, each a list of steps matched against consecutive tokens. A step may set `surface`, `lemma` (dictionary form), `pos` (first part-of-speech level, e.g. 助詞) and `form` (`te`: 連用形 followed by て/で). |
 | `factSheet` | The explanation shown after a wrong contrast choice, and the approval gate. |
 | `contrasts` | Sentences with one gap (＿), the right form and a confusable wrong one, and an English translation. |
 

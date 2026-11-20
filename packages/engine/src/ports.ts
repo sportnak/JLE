@@ -77,6 +77,31 @@ export interface ContentStore {
   put(content: StoredContent): Promise<void>;
 }
 
+/** An explanation written once from an approved fact sheet and reused by key. */
+export interface StoredExplanation {
+  key: string;
+  createdAt: string;
+  promptVersion: string;
+  model: string;
+  text: string;
+}
+
+export interface ExplanationStore {
+  get(key: string): Promise<StoredExplanation | null>;
+  put(explanation: StoredExplanation): Promise<void>;
+}
+
+export class MemoryExplanationStore implements ExplanationStore {
+  readonly entries = new Map<string, StoredExplanation>();
+  async get(key: string) {
+    return this.entries.get(key) ?? null;
+  }
+  async put(e: StoredExplanation) {
+    if (this.entries.has(e.key)) throw new Error(`explanation ${e.key} already stored`);
+    this.entries.set(e.key, e);
+  }
+}
+
 export class MemoryContentStore implements ContentStore {
   contents: StoredContent[] = [];
   async load(learnerId: string) {

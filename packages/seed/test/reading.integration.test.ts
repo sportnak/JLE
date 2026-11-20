@@ -609,7 +609,7 @@ describe('polite prefixes', () => {
 
   it('お + 茶 is read as お茶, the word the learner learns', async () => {
     const mapped = await mapTokens(split('茶', 'ちゃ'), dict, catalog);
-    expect(mapped.tokens).toEqual([{ surface: 'お茶', reading: 'おちゃ', begin: 0, end: 2, itemId: tea.id }]);
+    expect(mapped.tokens).toEqual([expect.objectContaining({ surface: 'お茶', reading: 'おちゃ', begin: 0, end: 2, itemId: tea.id, lemma: 'お茶', pos: '名詞' })]);
   });
 
   it('falls back to the bare noun when the joined word is not in the dictionary', async () => {

@@ -9,14 +9,18 @@
   "prerequisites": [],
   "confusables": [],
   "matcher": [
-    {
-      "surface": "と",
-      "pos": "助詞"
-    },
-    {
-      "surface": "や",
-      "pos": "助詞"
-    }
+    [
+      {
+        "surface": "と",
+        "pos": "助詞"
+      }
+    ],
+    [
+      {
+        "surface": "や",
+        "pos": "助詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

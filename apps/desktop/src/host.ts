@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ContentStore, Dictionary, DictionaryEntry, EventStore, InteractionEvent, Llm, LlmResult, StoredContent, Token, Tokenizer } from '@jle/engine';
+import type { ContentStore, Dictionary, DictionaryEntry, EventStore, ExplanationStore, InteractionEvent, Llm, LlmResult, StoredContent, StoredExplanation, Token, Tokenizer } from '@jle/engine';
 import { LocalStorageEventStore } from './storage';
 import { getSpeed, getVoice } from './prefs';
 
@@ -123,6 +123,12 @@ export const llm: Llm = {
 export const contentStore: ContentStore = {
   load: (learnerId) => invoke<StoredContent[]>('content_load', { learnerId }),
   put: (content) => invoke<void>('content_put', { content }),
+};
+
+/** Explanations of mistakes, stored once in the host's database and reused. */
+export const explanationStore: ExplanationStore = {
+  get: (key) => invoke<StoredExplanation | null>('explanation_get', { key }),
+  put: (explanation) => invoke<void>('explanation_put', { explanation }),
 };
 
 export async function apiKeyStatus(): Promise<boolean> {

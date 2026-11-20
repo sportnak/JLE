@@ -11,9 +11,11 @@
     "i-adjective"
   ],
   "matcher": [
-    {
-      "pos": "形状詞"
-    }
+    [
+      {
+        "pos": "形状詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

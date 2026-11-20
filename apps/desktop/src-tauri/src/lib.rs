@@ -2,6 +2,7 @@ mod apikey;
 mod content;
 mod dictionary;
 mod events;
+mod explanation;
 mod llm;
 mod tokenizer;
 mod voice;
@@ -51,6 +52,8 @@ pub fn run() {
       llm::llm_usage,
       content::content_put,
       content::content_load,
+      explanation::explanation_get,
+      explanation::explanation_put,
       dictionary::dictionary_lookup,
     ])
     .build(tauri::generate_context!())

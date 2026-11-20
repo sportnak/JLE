@@ -3,6 +3,8 @@ import type { AttemptEvent, GradeContext } from './activities/types';
 import type { EngineConfig } from './config';
 import { applyEvidence, emptyState, pKnownOf, type Scheduler } from './model';
 import { sentencesOf, type KeptSentence } from './content/sentences';
+import { matchGrammar } from './content/grammar';
+import { grammarItemId } from './catalog';
 import { computePlacement, priorFor, type ClusterPlacement } from './placement';
 import type {
   ActivitySpec,
@@ -241,6 +243,9 @@ export class LearnerModel {
     if (!content) return;
     const looked = new Set(a.evidence.map((ev) => ev.itemId));
     const ids = [...new Set(content.tokens.flatMap((t) => (t.itemId ? [this.catalog.resolve(t.itemId)] : [])))];
+    // Approved grammar points the passage uses count as met words do (matched now, so later approvals apply).
+    const points = [...new Set(matchGrammar(content.tokens, this.catalog.grammar()).map((s) => grammarItemId(s.pointId)))];
+    ids.push(...points.filter((id) => this.catalog.item(id)));
     for (const id of ids) this.meetings.set(id, (this.meetings.get(id) ?? 0) + 1);
     for (const id of ids) {
       const item = this.catalog.item(id);

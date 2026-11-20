@@ -9,10 +9,12 @@
   "prerequisites": [],
   "confusables": [],
   "matcher": [
-    {
-      "lemma": "たい",
-      "pos": "助動詞"
-    }
+    [
+      {
+        "lemma": "たい",
+        "pos": "助動詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

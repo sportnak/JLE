@@ -21,11 +21,18 @@ export function validatePoint(raw: unknown): string[] {
   for (const k of ['prerequisites', 'confusables']) {
     if (!Array.isArray(p[k]) || !(p[k] as unknown[]).every((x) => typeof x === 'string')) e.push(`${k} must be a list of point ids`);
   }
-  if (!Array.isArray(p.matcher) || p.matcher.length === 0) e.push('matcher must be a non-empty list of token steps');
+  if (!Array.isArray(p.matcher) || p.matcher.length === 0) e.push('matcher must be a non-empty list of alternatives');
   else
-    for (const step of p.matcher as Record<string, unknown>[]) {
-      const keys = Object.keys(step ?? {});
-      if (keys.length === 0 || keys.some((k) => !STEP_KEYS.has(k) || typeof step[k] !== 'string')) e.push(`bad matcher step ${JSON.stringify(step)}`);
+    for (const alt of p.matcher as unknown[]) {
+      if (!Array.isArray(alt) || alt.length === 0) {
+        e.push('each matcher alternative must be a non-empty list of steps');
+        continue;
+      }
+      for (const step of alt as Record<string, unknown>[]) {
+        const keys = Object.keys(step ?? {});
+        if (keys.length === 0 || keys.some((k) => !STEP_KEYS.has(k) || typeof step[k] !== 'string')) e.push(`bad matcher step ${JSON.stringify(step)}`);
+        if (step?.form !== undefined && step.form !== 'te') e.push(`unknown matcher form ${String(step.form)}`);
+      }
     }
   const fs = p.factSheet as Record<string, unknown> | undefined;
   if (!fs || typeof fs !== 'object') e.push('factSheet is required');

@@ -9,14 +9,18 @@
   "prerequisites": [],
   "confusables": [],
   "matcher": [
-    {
-      "lemma": "ある",
-      "pos": "動詞"
-    },
-    {
-      "lemma": "いる",
-      "pos": "動詞"
-    }
+    [
+      {
+        "lemma": "ある",
+        "pos": "動詞"
+      }
+    ],
+    [
+      {
+        "lemma": "いる",
+        "pos": "動詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

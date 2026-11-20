@@ -9,14 +9,18 @@
   "prerequisites": [],
   "confusables": [],
   "matcher": [
-    {
-      "surface": "から",
-      "pos": "助詞"
-    },
-    {
-      "surface": "まで",
-      "pos": "助詞"
-    }
+    [
+      {
+        "surface": "から",
+        "pos": "助詞"
+      }
+    ],
+    [
+      {
+        "surface": "まで",
+        "pos": "助詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

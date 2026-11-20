@@ -11,10 +11,12 @@
     "ga-subject"
   ],
   "matcher": [
-    {
-      "surface": "は",
-      "pos": "助詞"
-    }
+    [
+      {
+        "surface": "は",
+        "pos": "助詞"
+      }
+    ]
   ],
   "factSheet": {
     "status": "draft",

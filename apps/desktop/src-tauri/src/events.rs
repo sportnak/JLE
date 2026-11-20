@@ -74,6 +74,20 @@ const MIGRATIONS: &[&str] = &[r#"
     BEGIN SELECT RAISE(ABORT, 'content is immutable'); END;
   CREATE TRIGGER content_no_delete BEFORE DELETE ON content
     BEGIN SELECT RAISE(ABORT, 'content is immutable'); END;
+"#, r#"
+  -- Explanations of mistakes, written from an approved fact sheet (architecture §5.1). Stored once per key
+  -- (point, fact sheet version, example, wrong answer) and reused, never rewritten.
+  CREATE TABLE explanation (
+    key            TEXT PRIMARY KEY,
+    created_at     TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    text           TEXT NOT NULL
+  );
+  CREATE TRIGGER explanation_no_update BEFORE UPDATE ON explanation
+    BEGIN SELECT RAISE(ABORT, 'explanation is immutable'); END;
+  CREATE TRIGGER explanation_no_delete BEFORE DELETE ON explanation
+    BEGIN SELECT RAISE(ABORT, 'explanation is immutable'); END;
 "#];
 
 pub struct EventStore {
