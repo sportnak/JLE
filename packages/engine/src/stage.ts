@@ -16,15 +16,35 @@ export function strandTargets(stage: Stage, config: EngineConfig): Record<Strand
   return config.mix.strandTargets[stage];
 }
 
+function shares(minutes: Record<Strand, number>): Record<Strand, number> | null {
+  const total = STRANDS.reduce((sum, s) => sum + minutes[s], 0);
+  if (total <= 0) return null;
+  return Object.fromEntries(STRANDS.map((s) => [s, minutes[s] / total])) as Record<Strand, number>;
+}
+
 /**
  * Score adjustment per strand: positive for strands below their target share, negative above.
+ * The share is the trailing week's, blended with this session's once the session has some time in it,
+ * so a session catches up on a lagging strand without being taken over by it.
  * With no time logged yet every strand is pulled by its target alone.
  */
-export function strandPull(minutes: Record<Strand, number>, stage: Stage, config: EngineConfig): Record<Strand, number> {
-  const total = STRANDS.reduce((sum, s) => sum + minutes[s], 0);
+export function strandPull(
+  weekMinutes: Record<Strand, number>,
+  stage: Stage,
+  config: EngineConfig,
+  sessionMinutes?: Record<Strand, number>,
+): Record<Strand, number> {
   const targets = strandTargets(stage, config);
+  const week = shares(weekMinutes);
+  const sessionTotal = sessionMinutes ? STRANDS.reduce((sum, s) => sum + sessionMinutes[s], 0) : 0;
+  const session = sessionMinutes && sessionTotal >= config.mix.sessionBlendAfterMinutes ? shares(sessionMinutes) : null;
+  const b = config.mix.sessionBlend;
   const pull = {} as Record<Strand, number>;
-  for (const s of STRANDS) pull[s] = config.mix.strandWeight * (targets[s] - (total > 0 ? minutes[s] / total : 0));
+  for (const s of STRANDS) {
+    const w = week?.[s] ?? 0;
+    const share = session ? (week ? (1 - b) * w + b * session[s] : session[s]) : w;
+    pull[s] = config.mix.strandWeight * (targets[s] - share);
+  }
   return pull;
 }
 

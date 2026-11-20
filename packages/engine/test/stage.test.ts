@@ -47,6 +47,24 @@ describe('strand targets by stage', () => {
   });
 });
 
+describe('strand pull with the session blended in', () => {
+  const studyWeek = { input: 1, output: 0, study: 9, fluency: 0 };
+  it('ignores a session with under a minute in it', () => {
+    const got = strandPull(studyWeek, 1, DEFAULT_CONFIG, { input: 0.5, output: 0, study: 0, fluency: 0 });
+    expect(got.input).toBeCloseTo(50 * (0.3 - 0.1));
+  });
+  it('a session heavy on a lagging strand stops being pulled toward it', () => {
+    const got = strandPull(studyWeek, 1, DEFAULT_CONFIG, { input: 4, output: 0, study: 0, fluency: 0 });
+    // Share is half the week's 0.1 and half the session's 1.0.
+    expect(got.input).toBeCloseTo(50 * (0.3 - 0.55));
+    expect(got.study).toBeCloseTo(50 * (0.5 - 0.45));
+  });
+  it('uses the session alone when the week has no time', () => {
+    const got = strandPull({ input: 0, output: 0, study: 0, fluency: 0 }, 1, DEFAULT_CONFIG, { input: 0, output: 0, study: 2, fluency: 0 });
+    expect(got.study).toBeCloseTo(-25);
+  });
+});
+
 describe('closed-exercise cap', () => {
   it.each([
     ['stage 1 is exempt', 1, 9, 10, false],

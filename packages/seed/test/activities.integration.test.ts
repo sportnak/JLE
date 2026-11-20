@@ -152,6 +152,40 @@ describe('a stage-1 session', () => {
     expect(m.study).toBeGreaterThan(m.input);
   });
 
+  it('after a study-heavy week, missed dictations do not take over the next session', async () => {
+    const { clock, engine } = await setup();
+    const knows = stageOneLearner(engine);
+    await days(engine, clock, knows, 6);
+    clock.advance(86_400_000);
+    // Misses every dictation: each miss queues a practice dictation, and the week's strand balance favours input.
+    let { sessionId, next } = await engine.startSession(20);
+    const strands: string[] = [];
+    while (!next.done && strands.length < 20) {
+      const v = next.activity;
+      strands.push(typeOf(v.spec).strand);
+      const input = v.spec.type === 'dictation' ? ({ kind: 'dont_know', latencyMs: 6000 } as const) : answerFor(v, knows);
+      if (input) await engine.recordInteraction(v.activityId, input);
+      clock.advance(v.spec.type === 'dictation' ? 15_000 : 8_000);
+      await engine.completeActivity(v.activityId);
+      next = await engine.nextActivity(sessionId);
+    }
+    const input = strands.filter((s) => s === 'input').length;
+    expect(input, 'some listening in the opening').toBeGreaterThan(0);
+    expect(input, 'listening is not most of the opening').toBeLessThanOrEqual(12);
+  });
+
+  it('a sound missed again after teaching comes back on a later day', async () => {
+    const { clock, engine } = await setup();
+    // Never hears small っ, so it is missed, taught, and missed again.
+    const base = stageOneLearner(engine);
+    const knows = (id: string) => id !== 'sound:sokuon' && base(id);
+    const sessions = await days(engine, clock, knows, 8);
+    const daysWithSokuon = sessions.filter(({ seen }) =>
+      seen.some((v) => v.spec.type !== 'introduce' && v.spec.itemId === 'sound:sokuon'),
+    ).length;
+    expect(daysWithSokuon).toBeGreaterThan(1);
+  });
+
   it('replays to identical state, including the new interaction kinds', async () => {
     const { clock, store, engine } = await setup();
     const knows = stageOneLearner(engine);

@@ -57,6 +57,10 @@ export interface EngineConfig {
     strandTargets: Record<Stage, Record<Strand, number>>;
     /** Pull toward the strand furthest below its target, in score points per unit of share. */
     strandWeight: number;
+    /** Weight of this session's own strand shares against the trailing week's. */
+    sessionBlend: number;
+    /** Session minutes before its own shares count. */
+    sessionBlendAfterMinutes: number;
     /** From stage 2, closed code-graded exercises stay under this share of session time. */
     closedCap: number;
     closedPenalty: number;
@@ -128,6 +132,8 @@ export const DEFAULT_CONFIG: EngineConfig = {
       4: { study: 0.15, input: 0.35, output: 0.3, fluency: 0.2 },
     },
     strandWeight: 50,
+    sessionBlend: 0.5,
+    sessionBlendAfterMinutes: 1,
     closedCap: 0.4,
     closedPenalty: 200,
   },

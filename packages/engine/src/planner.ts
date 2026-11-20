@@ -125,14 +125,17 @@ type OrderedCandidate = Candidate & { order: number };
 
 /** Strand balance over the trailing week, and from stage 2 the cap on closed exercises within the session. */
 function mix(model: LearnerModel, ctx: PlanContext, candidates: OrderedCandidate[]): OrderedCandidate[] {
-  const pull = strandPull(strandMinutesSince(model, new Date(ctx.now.getTime() - 7 * 86_400_000)), ctx.stage, model.config);
   let closedMs = 0;
   let totalMs = 0;
+  const sessionMinutes = Object.fromEntries(STRANDS.map((s) => [s, 0])) as Record<Strand, number>;
   for (const a of ctx.sessionActs) {
     const ms = activityMs(a);
     totalMs += ms;
+    sessionMinutes[typeOf(a.spec).strand] += ms / 60_000;
     if (typeOf(a.spec).closed) closedMs += ms;
   }
+  const week = strandMinutesSince(model, new Date(ctx.now.getTime() - 7 * 86_400_000));
+  const pull = strandPull(week, ctx.stage, model.config, sessionMinutes);
   const isOpen = (c: Candidate) => {
     const t = typeOf(c.spec);
     return !t.closed && t.strand !== 'study';
@@ -260,10 +263,15 @@ export function frontierItems(model: LearnerModel, exclude: Set<string>): Item[]
     .sort((a, b) => (clusterOrder.get(a.cluster) ?? 0) - (clusterOrder.get(b.cluster) ?? 0) || a.order - b.order);
 }
 
-/** Never taught: unseen, or only met through a missed probe (no review card yet). */
+/**
+ * Never taught to the point of a review card: unseen, met only through missed probes, or missed again
+ * after teaching (status Learning with no card). Without this last case such an item is never due and
+ * never new, so it would not come back. Items marked Known with no card (placement, "I know this") are taught.
+ */
 function isUntaught(model: LearnerModel, itemId: string, skill: Skill): boolean {
   const s = model.state(itemId, skill);
-  return s.status === 'unseen' || (s.status === 'introduced' && !s.card);
+  if (s.status === 'unseen') return true;
+  return !s.card && (s.status === 'introduced' || s.status === 'learning');
 }
 
 export function clusterReady(model: LearnerModel, clusterId: string): boolean {
