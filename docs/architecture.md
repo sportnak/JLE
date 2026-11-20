@@ -87,16 +87,23 @@ interface Ports {
   tts: { speak(text: string): Promise<void> };
 }
 
-interface Catalog {
-  item(id: string): Item | null;
-  byLemma(lemma: string, reading?: string): Item[];
-  byFrequency(fromRank: number, limit: number): Item[];
-  grammar(): GrammarPoint[];           // approved points only
-  edgesInto(id: string): ItemEdge[];
+interface Catalog {                    // built (packages/engine/src/types.ts)
+  item(id: string): Item | undefined;
+  clusters(): Cluster[];               // kana groups and word bands; a few dozen
+  cluster(id: string): Cluster | undefined;
+  inCluster(clusterId: string): Item[];
+  edgesInto(id: string): ItemEdge[];   // component edges computed on request
+  pair(id: string): MinimalPair | undefined;
+  pairsFor(itemId: string): MinimalPair[];
+  sentencesWith(itemId: string): DictationSentence[];
+  // added with reference.sqlite and grammar data:
+  // byLemma(lemma: string, reading?: string): Item[];
+  // byFrequency(fromRank: number, limit: number): Item[];
+  // grammar(): GrammarPoint[];        // approved points only
 }
 ```
 
-The step-1 engine loads its whole catalog into memory and scans it. That works for 340 items and not for 200k. Step 1b moves every scan behind `Catalog`. Component edges (word → kana, word → kanji) are computed from the reading and written form when asked for, never stored for the whole dictionary.
+The engine reaches the catalog only through these lookups (`memoryCatalog` implements them over the starter tables); step 1b adds an implementation over `reference.sqlite`. Component edges (word → kana, word → kanji) are computed from the reading and written form when asked for, never stored for the whole dictionary.
 
 ### 4.2 Operations
 
@@ -336,8 +343,8 @@ With no network or no key, the engine still serves retrieval prompts, kana study
 | Step | Contents | Status |
 |---|---|---|
 | 1 | Event log, evidence, FSRS, replay, placement, planner, kana, retrieval prompts, Tauri shell, SQLite log, design system | Built, with a hand-written 130-word starter list |
-| 1b | `reference.sqlite` from JMdict and KANJIDIC2, `Catalog` port, sparse state at scale, Sudachi in the host, frequency-band placement. Retire the starter list | Next |
-| 1c | Activity registry, stage-based mix, interleaving, VOICEVOX lesson voice. Minimal pairs and dictation, which stage 1 relies on | |
+| 1b | `reference.sqlite` from JMdict and KANJIDIC2, `Catalog` port, sparse state at scale, Sudachi in the host, frequency-band placement. Retire the starter list | `Catalog` port done; the rest waits on §14 questions 1 and 3 |
+| 1c | Activity registry, stage-based mix, interleaving, VOICEVOX lesson voice. Minimal pairs and dictation, which stage 1 relies on | Built |
 | 2 | `addContent` and reading your own text first, then generated reading through the pipeline, hinge questions, embedded review. Contrast choice, transformation, input highlighting, sentence mining. Grammar data and the approval path, `llm_call` logging | |
 | 3 | Free writing with the grading contract, then tutor conversation, situation prompts, task role-play, retelling, error hunt from your own error records | |
 | 4 | Fast track, disguised probes, full cold start, cluster advance | |

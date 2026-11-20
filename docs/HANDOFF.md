@@ -1,6 +1,6 @@
 # Handoff: where the Japanese Learning Engine stands
 
-Last updated 2026-11-20. Read this first when picking the project up on a new machine or in a new session. Read `docs/architecture.md` next: it is the design, and this file is the status.
+Last updated 2026-11-20 (step 1c merged; first part of 1b done). Read this first when picking the project up on a new machine or in a new session. Read `docs/architecture.md` next: it is the design, and this file is the status.
 
 ## The documents
 
@@ -16,22 +16,24 @@ All three are Claude artifacts, private to the owner's Claude account. Sign in t
 
 | Branch | State |
 |---|---|
-| `michael/step-1-foundation` | Step 1, complete and tested. The app studied with every day runs this. |
-| `claude/step-1c-activities-61b271` | Step 1c, **work in progress** (see below). Branched from the foundation. It also holds the `pnpm app` install script and the repo `CLAUDE.md` as a separate commit. |
+| `michael/step-1-foundation` | The main branch. Steps 1 and 1c, plus the first, decision-free part of 1b. This is what `/Applications/日本語.app` is built from. |
+| `claude/step-1c-activities-61b271` | Merged; can be deleted. |
 
 ## Status by build step
 
 | Step | Contents | State |
 |---|---|---|
 | 1 | Event log and replay, evidence rules, FSRS-7, placement, planner (rests correct items, teaches misses back, adaptive intake, interleaving, early end), kana and a 130-word starter list, closed-answer grading including inflected forms, credited session clock, Tauri app, SQLite log, VOICEVOX voice with picker and speed, design system, font choice, in-lesson settings | **Done** |
-| 1c | Activity registry, stage-based mix with a closed-exercise cap, minimal-pair listening, dictation, `packages/sounds` | **In progress.** Code written; not every screen has been checked in the browser, the phone-width check isn't done, and it isn't merged. The branch's commit body lists exactly what's left. |
-| 1b | Full JMdict and KANJIDIC2 in `reference.sqlite`, a `Catalog` port, Sudachi tokenizer, sparse state at dictionary scale, frequency-band placement; retires the starter list | **Blocked** on decisions 1 and 2 below |
+| 1c | Activity registry, stage-based mix with a closed-exercise cap, minimal-pair listening, dictation, `packages/sounds` | **Done.** Every screen checked at phone and desktop width. Also fixed: items missed again after teaching were never served again; after a study-heavy week, missed dictations filled sessions (strand balance now blends in the current session). |
+| 1b | Full JMdict and KANJIDIC2 in `reference.sqlite`, a `Catalog` port, Sudachi tokenizer, sparse state at dictionary scale, frequency-band placement; retires the starter list | **Part done.** The `Catalog` port is in: the engine reaches items through lookups, word → kana edges are computed, and progress counts come from sparse state. A simulated learner gives a byte-identical log before and after. The rest is **blocked** on decisions 1 and 2 below. |
 | 2 | Your own text (`addContent`) first, then generated reading, hinge questions, contrast choice, transformation, highlighting, sentence mining, grammar data and approval, model-call logging | Not started |
 | 3 | Free writing, tutor conversation, situation prompts, role-play, retelling, error hunt | Not started |
 | 4 | Fast track, disguised probes, full cold start, cluster advance | Not started |
 | 5 | Graded listening, listen-read-listen, narrow reading, shadowing, fluency, timed retelling, weekly rollup, pinned goals | Not started |
 
 ## Open decisions
+
+Step 2's activities are stage-2 activities, and stage 2 starts at 300 Known words; the starter list has 130. So step 2 can't reach a learner until 1b replaces the starter list, which makes decisions 1 and 2 the critical path.
 
 1. **Item granularity:** one vocabulary item per JMdict entry (recommended: the tokenizer gives lemmas, not senses) or per sense?
 2. **Downloads for 1b:** JMdict, KANJIDIC2, a Sudachi dictionary, and which word-frequency list. The list's licence matters if the app is ever distributed.
@@ -63,7 +65,7 @@ git clone https://github.com/sportnak/JLE.git && cd JLE
 git checkout michael/step-1-foundation   # or the step-1c branch to continue it
 ```
 
-Needs Node 22+, pnpm 10+, Rust (install with `rustup`), and Xcode command-line tools.
+Needs Node 22.12+ (24 works; Node 18 fails to load Vite 8's native bindings), pnpm 10+, Rust (install with `rustup`; make sure `~/.cargo/bin` is on PATH), and Xcode command-line tools. If tests fail to start with a missing `@rolldown/binding-*`, run `pnpm install --force` under the newer Node.
 
 ```bash
 pnpm install
@@ -77,17 +79,14 @@ cd apps/desktop && pnpm tauri dev
 
 **Your study progress** lives in `~/Library/Application Support/app.jle.desktop/jle.sqlite` and does not sync. To carry it over, quit the app on both machines and copy that file to the same path on the new Mac. Settings → Save a copy exports the log as JSON, but there is no import yet.
 
-**Installing into /Applications** (on the step-1c branch until merged): `pnpm app` from the main checkout builds a release and replaces `/Applications/日本語.app`. See the repo `CLAUDE.md`.
+**Installing into /Applications:** `pnpm app` from the main checkout builds a release and replaces `/Applications/日本語.app`. See the repo `CLAUDE.md`.
 
 ## Briefs to start the next work
 
-**Finish step 1c.** On `claude/step-1c-activities-61b271`: read the WIP commit body for what's unverified, finish it, and check both new activities in the browser at desktop and phone widths. Make sure `pnpm -r test`, `pnpm -r typecheck` and `cargo test` (in `apps/desktop/src-tauri`) pass, and that the real study log still replays: open it read-only and derive state in memory. Then commit and merge into the foundation branch, and run `pnpm app` from the main checkout.
-
 **Step 1b, once decisions 1 and 2 are made.** Follow `docs/architecture.md` §4.1 (Catalog port), §5.2 (reference database), §6.1 (Sudachi) and §11:
 - Build `packages/reference` to produce `reference.sqlite` from JMdict, KANJIDIC2 and the chosen frequency list.
-- Move every catalog scan in the planner and engine behind `Catalog`.
-- Compute component edges from readings instead of storing them.
-- Make learner state sparse at dictionary scale.
+- Implement `Catalog` over `reference.sqlite` (the in-memory one is `memoryCatalog` in `packages/engine/src/catalog.ts`). Word → kanji edges join the computed word → kana ones.
+- Page `Engine.clusterRows` and the progress table for dictionary-sized bands.
 - Replace the starter-word bands with frequency-band placement.
 - Add Sudachi in the Rust host.
 - Keep the existing tests passing and the real log replaying.
