@@ -4,7 +4,8 @@ import { createScheduler, type Scheduler } from './model';
 import { typeOf } from './activities';
 import { currentStage, frontierItems, planCandidates, strandMinutesSince } from './planner';
 import { asHiragana, grade } from './grading';
-import { randomIds, systemClock, type Clock, type ContentStore, type Dictionary, type EventStore, type ExplanationStore, type Ids, type Llm, type Tokenizer } from './ports';
+import { randomIds, systemClock, type Clock, type ContentStore, type Dictionary, type EventStore, type ExplanationStore, type GradeStore, type Ids, type Llm, type Tokenizer } from './ports';
+import { GRADE_PROMPT_VERSION, gradeRequest, mapGrade } from './content/grading';
 import { explainRequest, explanationKey, EXPLAIN_PROMPT_VERSION } from './content/explain';
 import { ownTextContent } from './content/ownText';
 import { pickLibraryPassage, writeReading, type LibraryPassage, type ReadingOutcome } from './content/reading';
@@ -21,6 +22,7 @@ import type {
   Status,
   Strand,
   StoredContent,
+  StoredGrade,
 } from './types';
 
 export interface EngineOptions {
@@ -43,6 +45,8 @@ export interface EngineOptions {
   library?: LibraryPassage[];
   /** Stored explanations of mistakes, written once from approved fact sheets. */
   explanations?: ExplanationStore;
+  /** Stored grades of free writing: written once, read back on every replay. */
+  grades?: GradeStore;
 }
 
 export interface ActivityView {
@@ -109,6 +113,8 @@ export class Engine {
   private model!: LearnerModel;
   private events: InteractionEvent[] = [];
   private contents: StoredContent[] = [];
+  private grades: StoredGrade[] = [];
+  private grading = new Set<string>();
   private preparing: Promise<ReadingOutcome> | null = null;
   private writing: Promise<unknown> = Promise.resolve();
   private libraryMaps = new Map<string, { tokens: import('./types').ContentToken[]; items: Item[] }>();
@@ -131,13 +137,14 @@ export class Engine {
     const engine = new Engine(opts, await createScheduler(opts.config ?? DEFAULT_CONFIG));
     engine.events = await opts.store.load(opts.learnerId);
     engine.contents = opts.contents ? await opts.contents.load(opts.learnerId) : [];
+    engine.grades = opts.grades ? await opts.grades.load(opts.learnerId) : [];
     engine.rebuild();
     return engine;
   }
 
   /** Recomputes all learner state from the event log. */
   rebuild() {
-    this.model = derive(this.events, this.opts.catalog, this.config, this.scheduler, this.contents);
+    this.model = derive(this.events, this.opts.catalog, this.config, this.scheduler, this.contents, this.grades);
   }
 
   get learner(): LearnerModel {
@@ -215,7 +222,7 @@ export class Engine {
     if (!session) throw new Error(`Unknown session ${sessionId}`);
     const now = this.clock.now();
     const timeLeft = this.sessionClock(sessionId).remainingMs > 0;
-    const best = timeLeft ? planCandidates(this.model, sessionId, now, this.scheduler)[0] : undefined;
+    const best = timeLeft ? planCandidates(this.model, sessionId, now, this.scheduler, { modelGrading: this.canWrite })[0] : undefined;
     if (!best) return { done: true, recap: await this.completeSession(sessionId) };
     const activityId = this.ids.next();
     await this.append({ kind: 'activity_started', sessionId, activityId, spec: best.spec });
@@ -325,6 +332,96 @@ export class Engine {
     return text.trim();
   }
 
+  /** Whether free writing can be graded here: the model, the host's tokenizer and dictionary, and the grade store. */
+  get canWrite(): boolean {
+    const { llm, tokenizer, dictionary, grades } = this.opts;
+    return !!(llm && tokenizer && dictionary && grades);
+  }
+
+  /** A stored grade, by id. */
+  grade(gradeId: string): StoredGrade | undefined {
+    return this.model.grades.get(gradeId);
+  }
+
+  /**
+   * Submits free writing: the answer is logged, graded by the model, mapped to items in code, stored once, and applied
+   * through a `writing_graded` event. If the model or tokenizer fails, this throws and the activity stays ungraded;
+   * `regrade` then tries the same answer again.
+   */
+  async submitWriting(activityId: string, text: string, latencyMs = 0): Promise<StoredGrade> {
+    const a = this.ungradedWriting(activityId);
+    if (!text.trim()) throw new Error('The answer is empty.');
+    if (!this.canWrite) throw new Error('Free writing needs an API key and the desktop app.');
+    // Claimed before the first await, so a second submit or regrade is refused.
+    this.grading.add(activityId);
+    try {
+      await this.append({ kind: 'answer', activityId, text, latencyMs, attempt: a.attempts + 1 });
+      return await this.gradeWriting(activityId, text);
+    } finally {
+      this.grading.delete(activityId);
+    }
+  }
+
+  /** Grades the last answer of an ungraded writing activity again, after a failed try. Logs no new answer. */
+  async regrade(activityId: string): Promise<StoredGrade> {
+    const a = this.ungradedWriting(activityId);
+    const answer = a.answers.at(-1);
+    if (answer === undefined) throw new Error('There is no answer to grade.');
+    this.grading.add(activityId);
+    try {
+      return await this.gradeWriting(activityId, answer);
+    } finally {
+      this.grading.delete(activityId);
+    }
+  }
+
+  private ungradedWriting(activityId: string) {
+    const a = this.model.activities.get(activityId);
+    if (!a || a.spec.type !== 'writing') throw new Error(`Activity ${activityId} is not free writing.`);
+    if (a.gradeId) throw new Error('This writing is already graded.');
+    if (this.grading.has(activityId)) throw new Error('This writing is being graded.');
+    return a;
+  }
+
+  private async gradeWriting(activityId: string, answer: string): Promise<StoredGrade> {
+    const { llm, tokenizer, dictionary, grades, catalog } = this.opts;
+    if (!llm || !tokenizer || !dictionary || !grades) throw new Error('Free writing needs an API key and the desktop app.');
+    const a = this.model.activities.get(activityId)!;
+    if (a.spec.type !== 'writing') throw new Error(`Activity ${activityId} is not free writing.`);
+    const spec = a.spec;
+    {
+      const targets = spec.targets.map((id) => catalog.item(catalog.resolve(id))).filter((i): i is Item => !!i);
+      let result;
+      try {
+        result = await llm.call('grade', gradeRequest(spec.task, targets, answer, catalog.grammar(), a.sessionId));
+      } catch (e) {
+        throw new Error(`Grading failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (!result.output || typeof result.output !== 'object') throw new Error('Grading failed: the reply was not a grade.');
+      let mapped;
+      try {
+        mapped = await mapGrade(result.output, { answer, targets }, { tokenizer, dictionary }, catalog);
+      } catch (e) {
+        throw new Error(`Grading failed while reading the answer: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      const grade: StoredGrade = {
+        id: this.ids.next(),
+        learnerId: this.opts.learnerId,
+        activityId,
+        createdAt: this.clock.now().toISOString(),
+        promptVersion: GRADE_PROMPT_VERSION,
+        model: result.model,
+        answer,
+        ...mapped,
+      };
+      await grades.put(grade);
+      this.grades.push(grade);
+      this.model.addGrade(grade);
+      await this.append({ kind: 'writing_graded', activityId, gradeId: grade.id });
+      return grade;
+    }
+  }
+
   /** Whether texts can be added here (the desktop app's tokenizer and dictionary). */
   get canAddText(): boolean {
     return !!(this.opts.tokenizer && this.opts.dictionary && this.opts.contents);
@@ -422,11 +519,13 @@ export class Engine {
     if (!session.completed) await this.append({ kind: 'session_completed', sessionId });
     const acts = session.activityIds.map((id) => this.model.activities.get(id)!).filter(Boolean);
     const unique = (xs: string[]) => [...new Set(xs)];
+    // Free writing shows its own corrections from the grade, so it is not listed here.
     const missedActs = acts.filter(
       (a) =>
-        a.outcome === 'wrong' ||
-        a.outcome === 'dont_know' ||
-        (a.spec.type === 'dictation' && a.evidence.some((e) => e.direction === 'negative')),
+        a.spec.type !== 'writing' &&
+        (a.outcome === 'wrong' ||
+          a.outcome === 'dont_know' ||
+          (a.spec.type === 'dictation' && a.evidence.some((e) => e.direction === 'negative'))),
     );
     const firstBefore = new Map<string, Status>();
     for (const a of acts) {
@@ -492,7 +591,7 @@ export class Engine {
   /** Groups a session started now would draw on. No counts: due items are met inside the session, not listed. */
   previewMix(limit = 8): string[] {
     const labels = new Map(this.opts.catalog.clusters().map((c) => [c.id, c.label]));
-    const picks = planCandidates(this.model, '__preview__', this.clock.now(), this.scheduler).slice(0, limit);
+    const picks = planCandidates(this.model, '__preview__', this.clock.now(), this.scheduler, { modelGrading: this.canWrite }).slice(0, limit);
     const groups = picks.map((c) => labels.get(this.model.item(c.spec.itemId)?.cluster ?? ''));
     return [...new Set(groups.filter((g): g is string => !!g))];
   }
@@ -505,6 +604,7 @@ export class Engine {
       this.config,
       this.scheduler,
       this.contents,
+      this.grades,
     );
     const isKnown = (m: LearnerModel, item: Item) =>
       item.skills.some((s) => ['known', 'maintained'].includes(m.state(item.id, s).status));

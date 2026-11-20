@@ -3,6 +3,7 @@ mod content;
 mod dictionary;
 mod events;
 mod explanation;
+mod grade;
 mod llm;
 mod tokenizer;
 mod voice;
@@ -52,6 +53,8 @@ pub fn run() {
       llm::llm_usage,
       content::content_put,
       content::content_load,
+      grade::grade_put,
+      grade::grade_load,
       explanation::explanation_get,
       explanation::explanation_put,
       dictionary::dictionary_lookup,

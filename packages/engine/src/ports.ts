@@ -1,4 +1,4 @@
-import type { InteractionEvent, StoredContent } from './types';
+import type { InteractionEvent, StoredContent, StoredGrade } from './types';
 
 export interface Clock {
   now(): Date;
@@ -75,6 +75,23 @@ export interface Dictionary {
 export interface ContentStore {
   load(learnerId: string): Promise<StoredContent[]>;
   put(content: StoredContent): Promise<void>;
+}
+
+/** Graded writing, stored once and read back on replay. */
+export interface GradeStore {
+  load(learnerId: string): Promise<StoredGrade[]>;
+  put(grade: StoredGrade): Promise<void>;
+}
+
+export class MemoryGradeStore implements GradeStore {
+  grades: StoredGrade[] = [];
+  async load(learnerId: string) {
+    return this.grades.filter((g) => g.learnerId === learnerId);
+  }
+  async put(grade: StoredGrade) {
+    if (this.grades.some((g) => g.id === grade.id)) throw new Error(`grade ${grade.id} already stored`);
+    this.grades.push(grade);
+  }
 }
 
 /** An explanation written once from an approved fact sheet and reused by key. */

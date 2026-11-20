@@ -202,7 +202,7 @@ The stage is derived from vocabulary size: the count of words Known for recognit
 | Kind | Tables | Notes |
 |---|---|---|
 | Source of truth | `interaction_event` | Append-only, enforced by triggers. Built in step 1. |
-| Stored outputs | `content`, `grader_output`, `review_output`, `explanation` | Immutable, versioned. `content.source` is `generated` or `learner`. Explanations are keyed by item, error type and fact-sheet version, and reused. |
+| Stored outputs | `content`, `grade`, `review_output`, `explanation` | Immutable, versioned. `content.source` is `generated` or `learner`. Explanations are keyed by item, error type and fact-sheet version, and reused. |
 | Re-derivable | `evidence_event` | Rebuilt when `rules_version` changes. |
 | Derived cache | `learner_item_state`, `requirement`, `weekly_rollup` | Sparse. Droppable. |
 | Unlisted items | `item_local` | Words the tokenizer finds that JMdict lacks (names, slang). Created on first meeting. |
@@ -288,7 +288,7 @@ Grammar-point matchers are the declarative patterns in `packages/grammar` (§5.3
 | Route | Job | Model | What it receives |
 |---|---|---|---|
 | `generate` | Content to a spec | `claude-opus-5-5` | Level, target and must-include items, hinge items, topic, length |
-| `grade` | Free writing or speech → item-level findings | `claude-sonnet-5-5` | The utterance, its context, the target items, the grammar-point id list |
+| `grade` | Free writing or speech → item-level findings | `claude-opus-5-5` (chosen over Sonnet: grading errors become evidence and lapses, so accuracy matters more than cost; see §14) | The utterance, its context, the target items, the grammar-point id list |
 | `tutor` | Conversation | `claude-opus-5-5` | Scenario, items to elicit, persona, capped history |
 | `explain` | Explanation from an approved fact sheet | `claude-opus-5-5` | The fact sheet, the error, a few known example words |
 | `review` | Second look at generated Japanese | `claude-sonnet-5-5` | The text and the reason it was flagged for review |

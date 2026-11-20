@@ -8,6 +8,7 @@ import { minimalPair } from './minimalPair';
 import { reading } from './reading';
 import { retrieval } from './retrieval';
 import { transformation } from './transformation';
+import { writing } from './writing';
 import type { ActivityType, Registry } from './types';
 
 /** Every activity type the planner can choose from. A new type is a new entry here, never a planner change. */
@@ -21,6 +22,7 @@ export const REGISTRY: Registry = {
   transformation,
   cloze,
   contrast,
+  writing,
 };
 
 export const activityTypes = (): ActivityType[] => Object.values(REGISTRY) as ActivityType[];
@@ -34,3 +36,4 @@ export { cueFor, retrievalSpec } from './retrieval';
 export { eligiblePairs } from './minimalPair';
 export { readyForDictation } from './dictation';
 export { transformationSpec } from './transformation';
+export { WRITING_TASKS } from './writing';

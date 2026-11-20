@@ -328,7 +328,8 @@ describe('closed-exercise cap', () => {
   const open = {
     id: 'open_reading',
     strand: 'input',
-    grading: 'model',
+    // Code-graded, like reading: model-graded types are only offered when a grader is wired.
+    grading: 'code',
     closed: false,
     skills: ['read'],
     stages: [1, 2, 3, 4],

@@ -5,6 +5,7 @@ import { applyEvidence, emptyState, pKnownOf, type Scheduler } from './model';
 import { sentencesOf, type KeptSentence } from './content/sentences';
 import { matchGrammar } from './content/grammar';
 import { grammarItemId } from './catalog';
+import { sentenceAt } from './content/grading';
 import { computePlacement, priorFor, type ClusterPlacement } from './placement';
 import type {
   ActivitySpec,
@@ -15,8 +16,10 @@ import type {
   InteractionEvent,
   Item,
   ItemSkillState,
+  LearnerError,
   Skill,
   StoredContent,
+  StoredGrade,
 } from './types';
 
 /** `read` is a finished passage: not an answer, so it never counts as right or wrong. */
@@ -36,6 +39,8 @@ export interface ActivityRecord {
   completedAt: string | null;
   evidence: EvidenceEvent[];
   statusBefore: ItemSkillState['status'] | null;
+  /** For free writing: the stored grade, once graded. */
+  gradeId?: string;
 }
 
 export interface SessionRecord {
@@ -84,6 +89,10 @@ export class LearnerModel {
   readonly meetings = new Map<string, number>();
   /** Words looked up while reading and not yet taught, with when they were first looked up. */
   readonly wanted = new Map<string, string>();
+  /** Stored grades of free writing, by id. Indexed before replay, like stored content. */
+  readonly grades = new Map<string, StoredGrade>();
+  /** Errors the learner has made in writing, by item, error type and quote. Error hunt draws on these. */
+  readonly errors = new Map<string, LearnerError>();
   utcOffsetMinutes = 0;
   lastSeq = 0;
   private placementCache: Map<string, ClusterPlacement> | null = null;
@@ -104,6 +113,11 @@ export class LearnerModel {
     if (this.contents.has(c.id)) return;
     this.catalog.extend(c.items);
     this.contents.set(c.id, c);
+  }
+
+  /** Adds a stored grade, so its `writing_graded` event can apply it. Grades are stored outputs, never rewritten. */
+  addGrade(g: StoredGrade) {
+    if (!this.grades.has(g.id)) this.grades.set(g.id, g);
   }
 
   /** Kept sentences holding a word, newest first. */
@@ -204,6 +218,9 @@ export class LearnerModel {
       case 'reading_done':
         this.onReadingDone(e);
         return { kind: 'none' };
+      case 'writing_graded':
+        this.onWritingGraded(e);
+        return { kind: 'none' };
       case 'keep_sentence': {
         const content = this.contents.get(e.contentId);
         const s = content && sentencesOf(content).find((x) => x.begin === e.begin && x.end === e.end);
@@ -252,6 +269,73 @@ export class LearnerModel {
       if (!item || looked.has(id)) continue;
       if (this.state(id, 'read').status === 'unseen') continue;
       this.emit(a, item, 'read', 'positive', this.config.strengths.readPast, 0, e.at, null, 'reading', false);
+    }
+  }
+
+  /**
+   * A graded piece of writing (architecture §6.3). Evidence lands on the write skill of each word or grammar point the
+   * grade maps: a sure or probable error is a miss, a target used correctly is a good recall, any other word used
+   * without error is light evidence. Low-confidence and unmapped findings change nothing. One event per item and
+   * direction. Sure and probable errors become error records.
+   */
+  private onWritingGraded(e: Extract<InteractionEvent, { kind: 'writing_graded' }>) {
+    const a = this.activities.get(e.activityId);
+    const g = this.grades.get(e.gradeId);
+    if (!a || a.spec.type !== 'writing' || !g || a.gradeId) return;
+    a.gradeId = g.id;
+    // A flagged grade stays attached (so it is not graded again) but gives no evidence.
+    if (this.hints.flagged.has(a.id)) {
+      a.outcome = 'skip';
+      return;
+    }
+    const st = this.config.strengths;
+    const resolved = (id: string) => this.catalog.resolve(id);
+    const errors = g.findings.filter((f) => f.itemId && (f.confidence === 'high' || f.confidence === 'medium'));
+    // The strongest error per item: a sure error outweighs a probable one.
+    const worst = new Map<string, 'high' | 'medium'>();
+    for (const f of errors) {
+      const id = resolved(f.itemId!);
+      if (worst.get(id) !== 'high') worst.set(id, f.confidence as 'high' | 'medium');
+    }
+    const skillFor = (item: Item): Skill => (item.skills.includes('write') ? 'write' : (item.skills[0] ?? 'read'));
+    for (const [id, confidence] of worst) {
+      const item = this.catalog.item(id);
+      if (!item) continue;
+      const skill = skillFor(item);
+      const base = confidence === 'high' ? st.writingErrorHigh : st.writingErrorMedium;
+      // Only a sure error is a lapse on a review card; a probable one lowers p_known.
+      const fsrs = confidence === 'high' && this.state(id, skill).card ? 'again' : null;
+      this.emit(a, item, skill, 'negative', base, 0, e.at, fsrs, 'writing', false);
+    }
+    const targets = new Set(g.targetsUsed.map(resolved));
+    for (const id of targets) {
+      const item = this.catalog.item(id);
+      if (!item || worst.has(id)) continue;
+      this.emit(a, item, skillFor(item), 'positive', st.writingTarget, 0, e.at, 'good', 'writing', false);
+    }
+    for (const id of new Set(g.usedItems.map(resolved))) {
+      const item = this.catalog.item(id);
+      if (!item || worst.has(id) || targets.has(id)) continue;
+      this.emit(a, item, skillFor(item), 'positive', st.writingUsed, 0, e.at, null, 'writing', false);
+    }
+    a.outcome = worst.size === 0 ? 'correct' : 'wrong';
+    for (const f of errors) {
+      if (!f.singleErrorSentence || f.begin === null) continue;
+      const itemId = resolved(f.itemId!);
+      const k = `${itemId}|${f.errorType}|${f.quote}`;
+      const prev = this.errors.get(k);
+      this.errors.set(k, {
+        itemId,
+        errorType: f.errorType,
+        quote: f.quote,
+        correction: f.correction,
+        sentence: sentenceAt(g.answer, f.begin)?.text ?? g.answer,
+        singleErrorSentence: f.singleErrorSentence,
+        gradeId: g.id,
+        confidence: f.confidence,
+        timesSeen: (prev?.timesSeen ?? 0) + 1,
+        lastAt: e.at,
+      });
     }
   }
 
@@ -457,10 +541,12 @@ export function derive(
   config: EngineConfig,
   scheduler: Scheduler,
   contents: StoredContent[] = [],
+  grades: StoredGrade[] = [],
 ): LearnerModel {
   const sorted = [...events].sort((a, b) => a.seq - b.seq);
   const model = new LearnerModel(catalog, config, scheduler, scanHints(sorted));
   for (const c of contents) model.addContent(c);
+  for (const g of grades) model.addGrade(g);
   for (const e of sorted) model.apply(e);
   return model;
 }

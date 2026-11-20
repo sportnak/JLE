@@ -21,11 +21,15 @@ function sessionHistory(acts: ActivityRecord[]): Map<string, ActivityRecord[]> {
 }
 
 /**
- * An activity whose answer says something about its item. A passage is read, not answered, and a question with no
- * hinge word checks the gist, not its stand-in item, so neither is right or wrong for the item.
+ * An activity whose answer says something about its item. A passage is read, not answered, free writing is graded
+ * word by word, not on its first target, and a question with no hinge word checks the gist, not its stand-in item, so
+ * none of them is right or wrong for the item.
  */
 const attempt = (a: ActivityRecord) =>
-  a.spec.type !== 'introduce' && a.spec.type !== 'reading' && !(a.spec.type === 'comprehension' && !a.spec.hinge);
+  a.spec.type !== 'introduce' &&
+  a.spec.type !== 'reading' &&
+  a.spec.type !== 'writing' &&
+  !(a.spec.type === 'comprehension' && !a.spec.hinge);
 const missed = (a: ActivityRecord) => attempt(a) && (a.outcome === 'wrong' || a.outcome === 'dont_know');
 const right = (a: ActivityRecord) => attempt(a) && (a.outcome === 'correct' || a.outcome === 'self_corrected');
 const skillOf = (a: ActivityRecord) => typeOf(a.spec).skillOf(a.spec);
@@ -43,7 +47,13 @@ export function currentStage(model: LearnerModel): Stage {
  * needs it can serve, plus any of its own; then strand balance, the closed-exercise cap and interleaving
  * adjust the scores.
  */
-export function planCandidates(model: LearnerModel, sessionId: string, now: Date, scheduler: Scheduler): Candidate[] {
+export function planCandidates(
+  model: LearnerModel,
+  sessionId: string,
+  now: Date,
+  scheduler: Scheduler,
+  opts: { modelGrading?: boolean } = {},
+): Candidate[] {
   const cfg = model.config.planner;
   const session = model.sessions.get(sessionId);
   const sessionActs = (session?.activityIds ?? [])
@@ -128,7 +138,8 @@ export function planCandidates(model: LearnerModel, sessionId: string, now: Date
   const stage = currentStage(model);
   const ctx: PlanContext = { model, sessionId, now, scheduler, stage, needs, sessionActs, recentItems, metThisSession };
   const offered = activityTypes()
-    .filter((t) => t.stages.includes(stage))
+    // A model-graded type is offered only when a grader is wired (an API key and the host's tokenizer).
+    .filter((t) => t.stages.includes(stage) && (t.grading === 'code' || opts.modelGrading === true))
     .flatMap((t) => t.candidates(ctx));
   const ordered = mix(model, ctx, offered);
   return interleave(model, sessionActs, ordered)

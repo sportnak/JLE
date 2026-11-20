@@ -1,4 +1,4 @@
-import { Engine, MemoryEventStore, transformationSpec, type ActivitySpec, type ActivityView, type Catalog, type ContentToken, type Item, type StoredContent } from '@jle/engine';
+import { Engine, MemoryEventStore, transformationSpec, type ActivitySpec, type ActivityView, type Catalog, type ContentToken, type Finding, type Item, type StoredContent, type StoredGrade } from '@jle/engine';
 import { useRef, useState } from 'react';
 import { RENDERERS } from './SessionView';
 
@@ -57,6 +57,49 @@ function sampleContent(catalog: Catalog): StoredContent {
         answer: 1,
         ...(items.find((i) => i.written === 'コーヒー') ? { itemId: items.find((i) => i.written === 'コーヒー')!.id } : {}),
       },
+    ],
+  };
+}
+
+/** Words for the writing demo, by written form; any the catalog lacks are left out. */
+const WRITING_WORDS = ['友達', '学校', '飲む'];
+const WRITING_ANSWER = '週末は友達と学校へ行きました。コーヒーを飲むました。とても楽しいでした。';
+
+const writingTargets = (c: Catalog) =>
+  WRITING_WORDS.flatMap((w) => {
+    const hit = vocab(c).find((i) => i.written === w);
+    return hit ? [hit.id] : [];
+  });
+
+/** A canned grade for the sample answer, so the feedback screen can be seen without an API key. */
+function sampleGrade(catalog: Catalog, activityId: string): StoredGrade {
+  const chars = [...WRITING_ANSWER];
+  const span = (quote: string) => {
+    const q = [...quote];
+    for (let i = 0; i + q.length <= chars.length; i++) {
+      if (q.every((ch, k) => chars[i + k] === ch)) return { begin: i, end: i + q.length };
+    }
+    return { begin: null, end: null };
+  };
+  const finding = (f: Omit<Finding, 'begin' | 'end'>): Finding => ({ ...f, ...span(f.quote) });
+  const ids = writingTargets(catalog);
+  return {
+    id: 'demo:grade',
+    learnerId: 'demo',
+    activityId,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    promptVersion: 'demo',
+    model: 'none',
+    answer: WRITING_ANSWER,
+    corrected: '週末は友達と学校へ行きました。コーヒーを飲みました。とても楽しかったです。',
+    targetsUsed: ids.slice(0, 2),
+    usedItems: ids,
+    comment: 'A clear little story about your weekend. Two verb and adjective forms need fixing.',
+    findings: [
+      finding({ quote: '飲むました', lemma: '飲む', grammarPoint: null, errorType: 'conjugation', correction: '飲みました', explanation: 'ます attaches to the verb\'s stem: 飲む becomes 飲み before ます.', confidence: 'high' }),
+      finding({ quote: '楽しいでした', lemma: '楽しい', grammarPoint: null, errorType: 'conjugation', correction: '楽しかったです', explanation: 'An い-adjective takes the past itself: 楽しかった, then です for politeness.', confidence: 'high' }),
+      finding({ quote: '学校へ', lemma: null, grammarPoint: null, errorType: 'particle', correction: '学校に', explanation: 'へ is fine here; に is a little more usual for a destination in everyday speech.', confidence: 'low' }),
+      finding({ quote: 'それから', lemma: null, grammarPoint: null, errorType: 'missing_word', correction: 'それから、', explanation: 'A linking word such as それから between the two events would make it flow.', confidence: 'medium' }),
     ],
   };
 }
@@ -171,6 +214,17 @@ const DEMOS: Demo[] = [
     },
   },
   {
+    key: 'writing',
+    title: 'Write a few sentences',
+    about: 'A short task and a few words to use; Claude checks what you write and marks each mistake. In lessons from stage 3, with an API key. Here the feedback is a fixed sample.',
+    spec: (c) => {
+      const targets = writingTargets(c);
+      return targets.length
+        ? { type: 'writing', itemId: targets[0]!, purpose: 'practice', task: 'Write two or three sentences about what you did last weekend.', targets, sentences: 3 }
+        : null;
+    },
+  },
+  {
     key: 'dictation',
     title: 'Write what you hear',
     about: 'A short sentence of words you know is played; type it in kana.',
@@ -232,6 +286,7 @@ export function ActivityDemo({ catalog, examples, onBack }: { catalog: Catalog; 
             activity: open.activity,
             example: examples.get(open.activity.item.id),
             onNext: () => void close(),
+            ...(open.activity.spec.type === 'writing' ? { sample: sampleGrade(catalog, open.activity.activityId) } : {}),
           })}
         </div>
       </section>

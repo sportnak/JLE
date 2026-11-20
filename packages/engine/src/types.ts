@@ -186,6 +186,77 @@ export interface StoredContent {
   review?: { model: string; natural: boolean; translationMatches: boolean; problems: string[] };
 }
 
+/** Kinds of error the grader may report. Closed list, so evidence and error hunt can rely on it. */
+export const ERROR_TYPES = ['particle', 'conjugation', 'word_choice', 'spelling', 'word_order', 'politeness', 'missing_word', 'extra_word', 'other'] as const;
+export type ErrorType = (typeof ERROR_TYPES)[number];
+
+/**
+ * One finding from the grader, as the model returned it (the grading contract, architecture §6.3). The model never
+ * gives item ids: it quotes the learner's text and names a lemma or a grammar-point id from the list it was given.
+ */
+export interface RawFinding {
+  /** Exact text from the learner's answer that is wrong. */
+  quote: string;
+  /** Dictionary form of the word concerned, when the error is about a word. */
+  lemma: string | null;
+  /** A grammar-point id from the list sent, when the error is about grammar. */
+  grammarPoint: string | null;
+  errorType: ErrorType;
+  /** What the quote should be. */
+  correction: string;
+  /** One or two plain English sentences. */
+  explanation: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+/** A finding after code has mapped it. `itemId` absent means it could not be mapped: logged, no evidence. */
+export interface Finding extends RawFinding {
+  /** Character span of the quote in the answer, or null when the quote is not in it. */
+  begin: number | null;
+  end: number | null;
+  itemId?: string;
+  /** The answer's sentence holding this error with every other correction applied, so it shows exactly one error. */
+  singleErrorSentence?: string;
+}
+
+/**
+ * A graded piece of free writing: a stored output, written once and read back on replay (architecture §4.3), so the
+ * model is never called again. Evidence is applied from it when its `writing_graded` event is replayed.
+ */
+export interface StoredGrade {
+  id: string;
+  learnerId: string;
+  activityId: string;
+  createdAt: string;
+  promptVersion: string;
+  model: string;
+  /** The learner's answer, exactly as graded. */
+  answer: string;
+  /** The answer with every correction applied. */
+  corrected: string;
+  /** Target words the grader says were used correctly, as item ids (mapped in code). */
+  targetsUsed: string[];
+  /** Words in the answer the tokenizer mapped to items, for light evidence on words used without error. */
+  usedItems: string[];
+  findings: Finding[];
+  /** A short encouraging comment in English. */
+  comment: string;
+}
+
+/** An error the learner has made, derived from grades on replay; error hunt draws on these (step 3). */
+export interface LearnerError {
+  itemId: string;
+  errorType: ErrorType;
+  quote: string;
+  correction: string;
+  sentence: string;
+  singleErrorSentence: string;
+  gradeId: string;
+  confidence: RawFinding['confidence'];
+  timesSeen: number;
+  lastAt: string;
+}
+
 export type Strand = 'input' | 'output' | 'study' | 'fluency';
 export type Stage = 1 | 2 | 3 | 4;
 
@@ -264,6 +335,18 @@ export type ActivitySpec =
       answer: string;
     }
   | {
+      type: 'writing';
+      /** The first target word (for display and planning); evidence lands on every word the grader maps. */
+      itemId: string;
+      purpose: 'practice';
+      /** The task, in English, chosen in code from a fixed list. */
+      task: string;
+      /** Words to use, as item ids. */
+      targets: string[];
+      /** Sentences asked for, a rough length. */
+      sentences: number;
+    }
+  | {
       type: 'comprehension';
       /** The word the question hinges on, or for a question with no hinge, the passage's first word (no evidence). */
       itemId: string;
@@ -311,6 +394,7 @@ export type InteractionEvent = Base &
     | { kind: 'lookup'; activityId: string; itemId: string; tokenIndex: number }
     | { kind: 'reading_done'; activityId: string; latencyMs: number }
     | { kind: 'keep_sentence'; contentId: string; begin: number; end: number }
+    | { kind: 'writing_graded'; activityId: string; gradeId: string }
     | { kind: 'unkeep_sentence'; contentId: string; begin: number }
   );
 

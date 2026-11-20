@@ -1,9 +1,9 @@
-import { gradeDictation, sentencesOf, type ActivitySpec, type ActivityView, type Engine, type Feedback, type MinimalPair, type Segment } from '@jle/engine';
+import { gradeDictation, sentencesOf, type ActivitySpec, type ActivityView, type Engine, type ErrorType, type Feedback, type Finding, type Item, type MinimalPair, type Segment, type StoredGrade } from '@jle/engine';
 import { useEffect, useRef, useState } from 'react';
 import { toKana } from 'wanakana';
 import { useEnter } from './hooks';
 import { prepareSpeech, speak, speakSequence } from './host';
-import { PlayButton } from './ui';
+import { PlayButton, Word } from './ui';
 
 export interface ActivityProps {
   engine: Engine;
@@ -898,6 +898,254 @@ function ExplainMistake({ engine, activityId }: { engine: Engine; activityId: st
         {busy ? 'Explaining…' : 'Explain my mistake'}
       </button>
       {error && <span className="t-body-sm jle-wrong">{error}</span>}
+    </div>
+  );
+}
+
+type WritingSpec = Extract<ActivitySpec, { type: 'writing' }>;
+
+const ERROR_WORDS: Record<ErrorType, string> = {
+  particle: 'Particle',
+  conjugation: 'Verb or adjective form',
+  word_choice: 'Word choice',
+  spelling: 'Spelling',
+  word_order: 'Word order',
+  politeness: 'Politeness',
+  missing_word: 'Missing word',
+  extra_word: 'Extra word',
+  other: 'Other',
+};
+
+/** The answer split into plain runs and marked findings (numbered as in the list). Overlapping spans keep the first. */
+function markSpans(answer: string, findings: Finding[]) {
+  const chars = [...answer];
+  const spans = findings
+    .map((f, n) => ({ n, begin: f.begin, end: f.end }))
+    .filter((x): x is { n: number; begin: number; end: number } => x.begin !== null && x.end !== null && x.end > x.begin)
+    .sort((a, b) => a.begin - b.begin || a.n - b.n);
+  const parts: { text: string; n?: number }[] = [];
+  let at = 0;
+  for (const sp of spans) {
+    if (sp.begin < at) continue;
+    if (sp.begin > at) parts.push({ text: chars.slice(at, sp.begin).join('') });
+    parts.push({ text: chars.slice(sp.begin, sp.end).join(''), n: sp.n });
+    at = sp.end;
+  }
+  if (at < chars.length) parts.push({ text: chars.slice(at).join('') });
+  return parts;
+}
+
+/** The graded answer: comment, marked text, each finding and the corrected version. */
+function WritingFeedback({ grade, sample }: { grade: StoredGrade; sample: boolean }) {
+  const parts = markSpans(grade.answer, grade.findings);
+  const clean = grade.findings.length === 0;
+  return (
+    <>
+      <div className={`jle-note writing-comment ${clean ? 'jle-note-good' : 'jle-note-neutral'}`} role="status">
+        <b>{sample ? 'Sample feedback.' : clean ? 'Well written.' : 'Checked.'}</b>
+        <span>{grade.comment}</span>
+      </div>
+      <div className="writing-block">
+        <span className="jle-label">{sample ? 'THE SAMPLE ANSWER' : 'WHAT YOU WROTE'}</span>
+        <p className="t-reading writing-answer" lang="ja">
+          {parts.map((p, i) =>
+            p.n === undefined ? (
+              <span key={i}>{p.text}</span>
+            ) : (
+              <mark key={i} className={`writing-mark ${grade.findings[p.n]!.confidence === 'low' ? 'maybe' : ''}`}>
+                {p.text}
+                <sup className="writing-ref">{p.n + 1}</sup>
+              </mark>
+            ),
+          )}
+        </p>
+      </div>
+      {!clean && (
+        <ol className="writing-findings">
+          {grade.findings.map((f, n) => (
+            <li key={n} className="writing-finding">
+              <span className="writing-ref-num" aria-hidden="true">
+                {n + 1}
+              </span>
+              <div className="writing-finding-body">
+                <div className="writing-fix">
+                  <span className={`t-body jle-wrong ${f.errorType === 'missing_word' ? '' : 'writing-quote'}`} lang="ja">
+                    {f.quote}
+                  </span>
+                  <span className="jle-muted" aria-label="should be">
+                    →
+                  </span>
+                  <span className="t-body writing-correction" lang="ja">
+                    {f.correction}
+                  </span>
+                </div>
+                <span className="jle-caption">
+                  {ERROR_WORDS[f.errorType] ?? f.errorType}
+                  {f.confidence === 'low' && <span className="writing-maybe">maybe</span>}
+                  {f.begin === null && ' · not marked in the text'}
+                </span>
+                <p className="t-body-sm writing-explanation">
+                  <JaRun text={f.explanation} />
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      {!clean && grade.corrected !== grade.answer && (
+        <div className="fact-sheet">
+          <span className="jle-label">CORRECTED</span>
+          <p className="t-reading writing-answer" lang="ja">
+            {grade.corrected}
+          </p>
+          <div className="jle-row">
+            <PlayButton text={grade.corrected} label="Listen" />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Free writing: a task and a few words to use, typed with the system's Japanese input (no romaji conversion here), then
+ * graded by the model. `sample` shows a canned grade instead, for the activity list, without calling the model.
+ */
+export function WritingPrompt({ engine, activity, onNext, sample }: ActivityProps & { sample?: StoredGrade }) {
+  const spec = activity.spec as WritingSpec;
+  const { catalog } = engine.learner;
+  const targets = spec.targets.map((id) => catalog.item(catalog.resolve(id))).filter((i): i is Item => !!i);
+  const record = () => engine.learner.activities.get(activity.activityId);
+  const [text, setText] = useState(() => record()?.answers.at(-1) ?? sample?.answer ?? '');
+  const [grade, setGrade] = useState<StoredGrade | null>(() => {
+    const id = record()?.gradeId;
+    return (id && engine.grade(id)) || null;
+  });
+  // An answer logged but not graded (the model failed, or the app closed while checking) can be checked again.
+  const [error, setError] = useState<string | null>(() =>
+    !grade && (record()?.answers.length ?? 0) > 0 ? 'Your answer was saved but not checked yet.' : null,
+  );
+  const [busy, setBusy] = useState(false);
+  const shownAt = useRef(performance.now());
+  const area = useRef<HTMLTextAreaElement>(null);
+  useEnter(grade ? onNext : null);
+  useEffect(() => area.current?.focus(), []);
+
+  const run = async (job: () => Promise<StoredGrade>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setGrade(await job());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const submit = () => {
+    if (busy || !text.trim()) return;
+    if (sample) return setGrade(sample);
+    void run(() => engine.submitWriting(activity.activityId, text, Math.round(performance.now() - shownAt.current)));
+  };
+  const skip = async () => {
+    if (!sample) await engine.recordInteraction(activity.activityId, { kind: 'skip' });
+    onNext();
+  };
+  const pending = error !== null && (record()?.answers.length ?? 0) > 0;
+  const used = grade ? new Set(grade.targetsUsed.map(catalog.resolve)) : null;
+
+  return (
+    <div className="jle-stack writing">
+      <span className="jle-label">WRITE</span>
+      <p className="cue-english">{spec.task}</p>
+      <p className="t-body-sm jle-muted">
+        About {spec.sentences} sentences. Try to use {targets.length > 1 ? 'these words' : 'this word'}:
+      </p>
+      <ul className="writing-words">
+        {targets.map((t) => (
+          <li key={t.id} className="writing-word">
+            <Word item={t} furigana />
+            <span className="t-body-sm jle-muted">{t.gloss[0]}</span>
+            {used && (
+              <span className={`jle-chip writing-used ${used.has(catalog.resolve(t.id)) ? 'yes' : ''}`}>
+                {used.has(catalog.resolve(t.id)) ? 'Used well' : 'Not used well'}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {grade ? (
+        <>
+          <WritingFeedback grade={grade} sample={!!sample} />
+          <NextButton onNext={onNext} />
+        </>
+      ) : !engine.canWrite && !sample ? (
+        <>
+          <div className="jle-note jle-note-neutral writing-comment" role="status">
+            <b>Not available here.</b>
+            <span>Free writing is checked by Claude, so it needs the desktop app and an API key (Settings).</span>
+          </div>
+          <button className="jle-btn jle-btn-primary wide-btn" onClick={() => void skip()} autoFocus>
+            Skip
+          </button>
+        </>
+      ) : (
+        <form
+          className="jle-stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <textarea
+            ref={area}
+            className="jle-input writing-input"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            lang="ja"
+            aria-label="Your writing"
+            placeholder="Write in Japanese"
+            readOnly={busy || pending}
+            rows={5}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+          />
+          {sample && <p className="t-body-sm jle-muted">Sample: Submit shows fixed feedback on this answer. Nothing is sent to Claude.</p>}
+          {error && (
+            <div className="jle-note jle-note-bad writing-comment" role="alert">
+              <b>Not checked.</b>
+              <span>{error}</span>
+            </div>
+          )}
+          {pending ? (
+            <div className="answer-actions">
+              <button type="button" className="jle-btn jle-btn-primary" disabled={busy} onClick={() => void run(() => engine.regrade(activity.activityId))}>
+                {busy ? 'Checking…' : 'Try again'}
+              </button>
+            </div>
+          ) : (
+            <div className="answer-actions">
+              <button type="submit" className="jle-btn jle-btn-primary" disabled={!text.trim() || busy}>
+                {busy ? 'Checking…' : 'Submit'}
+              </button>
+              {!busy && <span className="jle-caption">⌘ Enter to submit</span>}
+            </div>
+          )}
+          {!busy && (
+            <button type="button" className="link-btn skip" onClick={() => void skip()}>
+              Skip
+            </button>
+          )}
+        </form>
+      )}
     </div>
   );
 }

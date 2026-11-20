@@ -68,8 +68,8 @@ pub struct RouteUsage {
 /// §7.1: the five jobs and their models. Anything else is refused.
 fn model_for(route: &str) -> Result<&'static str, String> {
   match route {
-    "generate" | "tutor" | "explain" => Ok(OPUS),
-    "grade" | "review" => Ok(SONNET),
+    "generate" | "tutor" | "explain" | "grade" => Ok(OPUS),
+    "review" => Ok(SONNET),
     _ => Err(format!("unknown route `{route}`")),
   }
 }
@@ -435,7 +435,7 @@ mod tests {
       ("generate", OPUS),
       ("tutor", OPUS),
       ("explain", OPUS),
-      ("grade", SONNET),
+      ("grade", OPUS),
       ("review", SONNET),
     ] {
       assert_eq!(model_for(route), Ok(model));
@@ -543,7 +543,7 @@ mod tests {
     assert!(result.is_err());
     let mut refused = response("refusal", json!([]));
     refused["model"] = json!("claude-opus-4-8");
-    let (row, result) = finish(&request("grade"), SONNET, Ok(refused), 900);
+    let (row, result) = finish(&request("grade"), OPUS, Ok(refused), 900);
     record(store.conn(), &row).unwrap();
     assert!(result.is_err());
 

@@ -1,5 +1,6 @@
 //! The interaction log: append-only, the source of truth for all learner state.
-//! The same database file holds stored content (`content.rs`) and the cost log (`llm.rs`); their tables are
+//! The same database file holds stored content (`content.rs`), grades (`grade.rs`), explanations and the cost log
+//! (`llm.rs`); their tables are
 //! created by the migrations here so there is one `user_version` sequence.
 
 use rusqlite::{params, Connection};
@@ -88,6 +89,22 @@ const MIGRATIONS: &[&str] = &[r#"
     BEGIN SELECT RAISE(ABORT, 'explanation is immutable'); END;
   CREATE TRIGGER explanation_no_delete BEFORE DELETE ON explanation
     BEGIN SELECT RAISE(ABORT, 'explanation is immutable'); END;
+"#, r#"
+  -- Grades of free writing (architecture §4.6): the model's findings, mapped once and replayed as stored.
+  CREATE TABLE grade (
+    id             TEXT PRIMARY KEY,
+    learner_id     TEXT NOT NULL,
+    activity_id    TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    payload        TEXT NOT NULL
+  );
+  CREATE INDEX grade_learner ON grade (learner_id, created_at);
+  CREATE TRIGGER grade_no_update BEFORE UPDATE ON grade
+    BEGIN SELECT RAISE(ABORT, 'grade is immutable'); END;
+  CREATE TRIGGER grade_no_delete BEFORE DELETE ON grade
+    BEGIN SELECT RAISE(ABORT, 'grade is immutable'); END;
 "#];
 
 pub struct EventStore {
@@ -181,7 +198,8 @@ pub fn events_append(store: Store, event: Value) -> Result<(), String> {
   store.lock().unwrap().append(&event)
 }
 
-/// Starting over is the one way the log goes away: the whole file is replaced, which also drops stored content.
+/// Starting over is the one way the log goes away: the whole file is replaced, which also drops stored content
+/// and grades.
 /// The cost log is not learner data, so its rows are carried over into the new file.
 #[tauri::command]
 pub fn events_reset(store: Store) -> Result<(), String> {
@@ -283,6 +301,31 @@ mod tests {
   }
 
   #[test]
+  fn upgrading_from_version_4_keeps_data_and_adds_protected_grades() {
+    let conn = Connection::open_in_memory().unwrap();
+    for sql in &MIGRATIONS[..4] {
+      conn.execute_batch(sql).unwrap();
+    }
+    conn.pragma_update(None, "user_version", 4).unwrap();
+    conn
+      .execute(
+        "INSERT INTO interaction_event VALUES ('e1', 'me', 'ja', 1, '2026-11-20T00:00:00Z', 'skip', '{}')",
+        [],
+      )
+      .unwrap();
+    conn.execute("INSERT INTO content VALUES ('c1', 'me', 'now', 'library', NULL, NULL, '{}')", []).unwrap();
+    conn.execute("INSERT INTO explanation VALUES ('k', 'now', 'v1', 'm', 'why')", []).unwrap();
+    migrate(&conn).unwrap();
+    let count = |t: &str| -> i64 { conn.query_row(&format!("SELECT count(*) FROM {t}"), [], |r| r.get(0)).unwrap() };
+    assert_eq!((count("interaction_event"), count("content"), count("explanation"), count("grade")), (1, 1, 1, 0));
+    conn.execute("INSERT INTO grade VALUES ('g1', 'me', 'a1', 'now', 'grade-1', 'm', '{}')", []).unwrap();
+    assert!(conn.execute("UPDATE grade SET payload = 'x'", []).is_err());
+    assert!(conn.execute("DELETE FROM grade", []).is_err());
+    let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+    assert_eq!(v, MIGRATIONS.len() as i64);
+  }
+
+  #[test]
   fn appends_and_loads_in_seq_order() {
     let store = temp_store("order");
     store.append(&event(2)).unwrap();
@@ -318,12 +361,16 @@ mod tests {
   }
 
   #[test]
-  fn reset_clears_events_and_content_but_keeps_the_cost_log() {
+  fn reset_clears_events_content_and_grades_but_keeps_the_cost_log() {
     let mut store = temp_store("reset");
     store.append(&event(1)).unwrap();
     store
       .conn
       .execute("INSERT INTO content VALUES ('k', 'me', 'now', 'generated', 'v1', 'm', '{}')", [])
+      .unwrap();
+    store
+      .conn
+      .execute("INSERT INTO grade VALUES ('g', 'me', 'a', 'now', 'grade-1', 'm', '{}')", [])
       .unwrap();
     store
       .conn
@@ -336,6 +383,7 @@ mod tests {
     let count = |t: &str| -> i64 { store.conn.query_row(&format!("SELECT count(*) FROM {t}"), [], |r| r.get(0)).unwrap() };
     assert_eq!(count("interaction_event"), 0);
     assert_eq!(count("content"), 0);
+    assert_eq!(count("grade"), 0);
     assert_eq!(count("llm_call"), 1);
     assert!(!store.path().with_extension("sqlite.new").exists());
   }

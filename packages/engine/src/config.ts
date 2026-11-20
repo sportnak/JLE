@@ -22,6 +22,14 @@ export interface EngineConfig {
     transformation: number;
     /** Choosing between two confusable grammar forms. */
     contrastChoice: number;
+    /** A writing error the grader is sure of, on the word or point it concerns. */
+    writingErrorHigh: number;
+    /** A writing error the grader thinks probable. Low-confidence findings give no evidence. */
+    writingErrorMedium: number;
+    /** A target word used correctly in free writing. */
+    writingTarget: number;
+    /** Any other word used in free writing without an error. */
+    writingUsed: number;
   };
   modifiers: {
     supportDiscount: number;
@@ -58,7 +66,7 @@ export interface EngineConfig {
     confirmAfterDays: number;
   };
   timing: {
-    baseSeconds: Record<'introduce' | 'kana_to_reading' | 'ja_to_en' | 'en_to_ja' | 'minimal_pair' | 'dictation' | 'reading' | 'comprehension' | 'transformation', number>;
+    baseSeconds: Record<'introduce' | 'kana_to_reading' | 'ja_to_en' | 'en_to_ja' | 'minimal_pair' | 'dictation' | 'reading' | 'comprehension' | 'transformation' | 'writing', number>;
     perCharSeconds: number;
     /** Reading is faster per character than typing an answer. */
     readingPerCharSeconds: number;
@@ -121,6 +129,10 @@ export const DEFAULT_CONFIG: EngineConfig = {
     comprehension: 0.4,
     transformation: 0.4,
     contrastChoice: 0.5,
+    writingErrorHigh: 0.6,
+    writingErrorMedium: 0.3,
+    writingTarget: 0.7,
+    writingUsed: 0.3,
   },
   modifiers: {
     supportDiscount: 0.6,
@@ -157,7 +169,7 @@ export const DEFAULT_CONFIG: EngineConfig = {
     confirmAfterDays: 1,
   },
   timing: {
-    baseSeconds: { introduce: 6, kana_to_reading: 4, ja_to_en: 6, en_to_ja: 7, minimal_pair: 5, dictation: 8, reading: 15, comprehension: 10, transformation: 9 },
+    baseSeconds: { introduce: 6, kana_to_reading: 4, ja_to_en: 6, en_to_ja: 7, minimal_pair: 5, dictation: 8, reading: 15, comprehension: 10, transformation: 9, writing: 90 },
     perCharSeconds: 1,
     readingPerCharSeconds: 0.4,
   },

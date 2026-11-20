@@ -1,7 +1,7 @@
-import type { ActivityTypeId, ActivityView, Engine, Feedback, Item, SessionRecap } from '@jle/engine';
+import type { ActivityTypeId, ActivityView, Engine, Feedback, Item, SessionRecap, StoredGrade } from '@jle/engine';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toKana } from 'wanakana';
-import { ClozePrompt, ComprehensionPrompt, ContrastPrompt, TransformationPrompt, DictationPrompt, MinimalPairPrompt, ReadingPrompt, SoundIntro, type ActivityProps } from './Activities';
+import { ClozePrompt, ComprehensionPrompt, ContrastPrompt, TransformationPrompt, DictationPrompt, MinimalPairPrompt, ReadingPrompt, SoundIntro, WritingPrompt, type ActivityProps } from './Activities';
 import { useEnter } from './hooks';
 import { speak } from './host';
 import { FontChips, FuriganaSizeChips, SpeedChoice, TextSizeChips, VoiceSelect } from './Controls';
@@ -95,7 +95,7 @@ export function SessionView({ engine, sessionId, examples, onExit, onKeepGoing }
   );
 }
 
-export type RendererProps = ActivityProps & { example: Item | undefined };
+export type RendererProps = ActivityProps & { example: Item | undefined; sample?: StoredGrade };
 
 /** One renderer per activity type, keyed like the engine's registry. */
 export const RENDERERS: Record<ActivityTypeId, (p: RendererProps) => ReactNode> = {
@@ -108,6 +108,7 @@ export const RENDERERS: Record<ActivityTypeId, (p: RendererProps) => ReactNode> 
   transformation: (p) => <TransformationPrompt {...p} />,
   cloze: (p) => <ClozePrompt {...p} />,
   contrast: (p) => <ContrastPrompt {...p} />,
+  writing: (p) => <WritingPrompt {...p} />,
 };
 
 /** Speed, voice and font, changeable without leaving the lesson. Each applies at once. */

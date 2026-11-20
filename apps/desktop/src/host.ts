@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ContentStore, Dictionary, DictionaryEntry, EventStore, ExplanationStore, InteractionEvent, Llm, LlmResult, StoredContent, StoredExplanation, Token, Tokenizer } from '@jle/engine';
+import type { ContentStore, Dictionary, DictionaryEntry, EventStore, ExplanationStore, GradeStore, InteractionEvent, Llm, LlmResult, StoredContent, StoredExplanation, StoredGrade, Token, Tokenizer } from '@jle/engine';
 import { LocalStorageEventStore } from './storage';
 import { getSpeed, getVoice } from './prefs';
 
@@ -129,6 +129,12 @@ export const contentStore: ContentStore = {
 export const explanationStore: ExplanationStore = {
   get: (key) => invoke<StoredExplanation | null>('explanation_get', { key }),
   put: (explanation) => invoke<void>('explanation_put', { explanation }),
+};
+
+/** Graded writing, stored once in the host's database and read back on replay. */
+export const gradeStore: GradeStore = {
+  load: (learnerId) => invoke<StoredGrade[]>('grade_load', { learnerId }),
+  put: (grade) => invoke<void>('grade_put', { grade }),
 };
 
 export async function apiKeyStatus(): Promise<boolean> {

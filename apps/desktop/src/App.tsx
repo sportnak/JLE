@@ -6,7 +6,7 @@ import { Home } from './Home';
 import { Progress } from './Progress';
 import { SessionView } from './SessionView';
 import { Settings } from './Settings';
-import { apiKeyStatus, contentStore, dictionary, explanationStore, inTauri, llm, store, tokenizer } from './host';
+import { apiKeyStatus, contentStore, dictionary, explanationStore, gradeStore, inTauri, llm, store, tokenizer } from './host';
 import { exampleWords } from './ui';
 
 export const LEARNER_ID = 'local';
@@ -30,7 +30,7 @@ export function App() {
       // Reading needs the host (tokenizer, dictionary, stored content). With an API key, passages are written for you;
       // without one, or offline, the best-fitting built-in passage is used.
       const reading = inTauri
-        ? { tokenizer, dictionary, contents: contentStore, explanations: explanationStore, library: LIBRARY, ...((await apiKeyStatus()) ? { llm } : {}) }
+        ? { tokenizer, dictionary, contents: contentStore, explanations: explanationStore, grades: gradeStore, library: LIBRARY, ...((await apiKeyStatus()) ? { llm } : {}) }
         : {};
       const engine = await Engine.create({ catalog, store, learnerId: LEARNER_ID, ...reading });
       if (import.meta.env.DEV) (window as unknown as { jle: Engine }).jle = engine;
