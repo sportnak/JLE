@@ -108,8 +108,8 @@ const MIGRATIONS: &[&str] = &[r#"
 "#];
 
 pub struct EventStore {
-  path: PathBuf,
-  conn: Connection,
+  pub(crate) path: PathBuf,
+  pub(crate) conn: Connection,
 }
 
 impl EventStore {
@@ -138,35 +138,40 @@ impl EventStore {
       .collect()
   }
 
-  fn append(&self, event: &Value) -> Result<(), String> {
-    let field = |k: &str| {
-      event
-        .get(k)
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("event is missing `{k}`"))
-    };
-    let seq = event
-      .get("seq")
-      .and_then(Value::as_i64)
-      .ok_or("event is missing `seq`")?;
-    self
-      .conn
-      .execute(
-        "INSERT INTO interaction_event (id, learner_id, language, seq, at, kind, payload)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-          field("id")?,
-          field("learnerId")?,
-          field("language")?,
-          seq,
-          field("at")?,
-          field("kind")?,
-          event.to_string()
-        ],
-      )
-      .map(|_| ())
-      .map_err(|e| e.to_string())
+  pub(crate) fn append(&self, event: &Value) -> Result<(), String> {
+    insert(&self.conn, event)
   }
+
+}
+
+/// Inserts one event; the table's triggers and unique (learner, seq) keep the log append-only and ordered.
+pub(crate) fn insert(conn: &Connection, event: &Value) -> Result<(), String> {
+  let field = |k: &str| {
+    event
+      .get(k)
+      .and_then(Value::as_str)
+      .ok_or_else(|| format!("event is missing `{k}`"))
+  };
+  let seq = event
+    .get("seq")
+    .and_then(Value::as_i64)
+    .ok_or("event is missing `seq`")?;
+  conn
+    .execute(
+      "INSERT INTO interaction_event (id, learner_id, language, seq, at, kind, payload)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+      params![
+        field("id")?,
+        field("learnerId")?,
+        field("language")?,
+        seq,
+        field("at")?,
+        field("kind")?,
+        event.to_string()
+      ],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -227,14 +232,14 @@ fn reset(guard: &mut EventStore) -> Result<(), String> {
 }
 
 /// Every row of one table, held in memory across a reset.
-struct KeptRows {
+pub(crate) struct KeptRows {
   table: &'static str,
   columns: usize,
   rows: Vec<Vec<rusqlite::types::Value>>,
 }
 
 impl KeptRows {
-  fn read(conn: &Connection, table: &'static str) -> rusqlite::Result<Self> {
+  pub(crate) fn read(conn: &Connection, table: &'static str) -> rusqlite::Result<Self> {
     let mut stmt = conn.prepare(&format!("SELECT * FROM {table}"))?;
     let columns = stmt.column_count();
     let rows = stmt
@@ -243,7 +248,7 @@ impl KeptRows {
     Ok(Self { table, columns, rows })
   }
 
-  fn write(&self, conn: &mut Connection) -> rusqlite::Result<()> {
+  pub(crate) fn write(&self, conn: &mut Connection) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     {
       let marks = vec!["?"; self.columns].join(", ");

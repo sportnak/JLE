@@ -23,8 +23,70 @@ export async function resetLog() {
   else browserStore.clear();
 }
 
-export async function exportLog(learnerId: string): Promise<string> {
-  return JSON.stringify(await store.load(learnerId), null, 2);
+export interface TransferSummary {
+  events: number;
+  content: number;
+  grades: number;
+  explanations: number;
+  /** Export: the file written. Import: where this machine's previous data was copied. */
+  path: string;
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Saves all progress (the log and every stored passage, grade and explanation) to a file the learner picks.
+ * Returns null when the save dialog is cancelled. In the browser, the log alone is downloaded in the same format.
+ */
+export async function exportProgress(learnerId: string): Promise<TransferSummary | null> {
+  if (inTauri) {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const path = await save({ defaultPath: `jle-progress-${today()}.json`, filters: [{ name: 'Progress', extensions: ['json'] }] });
+    if (!path) return null;
+    return invoke<TransferSummary>('export_progress', { path, exportedAt: new Date().toISOString() });
+  }
+  const events = await store.load(learnerId);
+  const file = { format: 'jle-progress', version: 1, schemaVersion: 0, exportedAt: new Date().toISOString(), events, content: [], grades: [], explanations: [] };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
+  a.download = `jle-progress-${today()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  return { events: events.length, content: 0, grades: 0, explanations: 0, path: a.download };
+}
+
+/** Lets the learner pick a progress file. Returns its path (desktop) or the file (browser), or null when cancelled. */
+export async function pickProgressFile(): Promise<string | File | null> {
+  if (inTauri) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const path = await open({ multiple: false, directory: false, filters: [{ name: 'Progress', extensions: ['json'] }] });
+    return typeof path === 'string' ? path : null;
+  }
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    input.click();
+  });
+}
+
+/**
+ * Replaces this machine's progress with a progress file. On the desktop the host checks the whole file first and
+ * copies the current data aside before swapping; a bad file changes nothing.
+ */
+export async function importProgress(file: string | File): Promise<TransferSummary> {
+  if (typeof file === 'string') return invoke<TransferSummary>('import_progress', { path: file });
+  let parsed: { format?: string; events?: InteractionEvent[] };
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch {
+    throw new Error('The file is not valid JSON.');
+  }
+  if (parsed.format !== 'jle-progress' || !Array.isArray(parsed.events)) throw new Error('This is not a progress file from this app.');
+  const backup = browserStore.exportJson();
+  browserStore.replace(parsed.events);
+  return { events: parsed.events.length, content: 0, grades: 0, explanations: 0, path: `browser storage (previous log kept under jle.events.backup, ${backup.length} bytes)` };
 }
 
 /** Speaks Japanese with the system voice; falls back to the browser's speech engine. */

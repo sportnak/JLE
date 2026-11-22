@@ -32,4 +32,11 @@ export class LocalStorageEventStore implements EventStore {
   clear() {
     localStorage.removeItem(this.key);
   }
+
+  /** Replaces the whole log, keeping the previous one under a backup key. */
+  replace(events: InteractionEvent[]) {
+    const previous = localStorage.getItem(this.key);
+    if (previous !== null) localStorage.setItem(`${this.key.replace(/\.v1$/, '')}.backup`, previous);
+    localStorage.setItem(this.key, JSON.stringify(events));
+  }
 }

@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::sync::Mutex;
 use tauri::State;
 
-fn put(conn: &Connection, grade: &Value) -> Result<(), String> {
+pub(crate) fn put(conn: &Connection, grade: &Value) -> Result<(), String> {
   let field = |k: &str| {
     grade
       .get(k)

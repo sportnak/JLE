@@ -1,7 +1,7 @@
 import type { Engine } from '@jle/engine';
 import { useEffect, useState } from 'react';
 import { LEARNER_ID } from './App';
-import { apiKeyStatus, clearApiKey, exportLog, inTauri, listVoices, llmUsage, resetLog, setApiKey, speak, voiceInfo, voiceTerms, type RouteUsage, type VoiceInfo, type VoiceOption } from './host';
+import { apiKeyStatus, clearApiKey, exportProgress, importProgress, inTauri, pickProgressFile, listVoices, llmUsage, resetLog, setApiKey, speak, voiceInfo, voiceTerms, type RouteUsage, type VoiceInfo, type VoiceOption } from './host';
 import { FuriganaSizeChips, SpeedChoice, TextSizeChips } from './Controls';
 import { FONTS, getFont, getVoice, setFont, setVoice, type FontChoice } from './prefs';
 
@@ -10,14 +10,6 @@ const SAMPLE = 'こんにちは。日本語を勉強しましょう。';
 export function Settings({ engine, onReset, onDemo }: { engine: Engine; onReset: () => void; onDemo: () => void }) {
   const [confirming, setConfirming] = useState(false);
 
-  const download = async () => {
-    const blob = new Blob([await exportLog(LEARNER_ID)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `jle-events-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
 
   return (
     <section className="page">
@@ -38,29 +30,7 @@ export function Settings({ engine, onReset, onDemo }: { engine: Engine; onReset:
         </button>
       </div>
 
-      <div className="setting">
-        <div>
-          <h2 className="t-heading">Study log</h2>
-          <p className="t-body jle-muted">
-            {engine.log.length} events, kept {inTauri ? 'in a database on this computer' : 'in this browser'}. Everything
-            the app knows about you is rebuilt from this log, so a copy of it is a full backup.
-          </p>
-        </div>
-        <div className="jle-row">
-          <button className="jle-btn" onClick={download}>
-            Save a copy
-          </button>
-          <button
-            className="jle-btn"
-            onClick={() => {
-              engine.rebuild();
-              onReset();
-            }}
-          >
-            Rebuild from log
-          </button>
-        </div>
-      </div>
+      <ProgressTransfer engine={engine} onImported={onReset} />
 
       <div className="setting">
         <div>
@@ -387,6 +357,110 @@ function SizeSetting() {
         </ruby>
         ました。
       </p>
+    </div>
+  );
+}
+
+/**
+ * Moving progress between machines: export everything to a file, import it on the other machine. Import replaces
+ * that machine's progress, after copying it aside.
+ */
+function ProgressTransfer({ engine, onImported }: { engine: Engine; onImported: () => void }) {
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const counts = (s: { events: number; content: number; grades: number; explanations: number }) =>
+    `${s.events} events, ${s.content} passages, ${s.grades} graded answers, ${s.explanations} explanations`;
+
+  const run = async (work: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await work();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="setting stacked">
+      <div>
+        <h2 className="t-heading">Your progress</h2>
+        <p className="t-body jle-muted">
+          {engine.log.length} events, kept {inTauri ? 'in a database on this computer' : 'in this browser'}. Everything the
+          app knows about you is rebuilt from it. To carry it to another Mac, export it here and import the file there.
+        </p>
+      </div>
+      <div className="jle-row">
+        <button
+          className="jle-btn"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              const s = await exportProgress(LEARNER_ID);
+              if (s) setMessage(`Saved ${counts(s)} to ${s.path}.`);
+            })
+          }
+        >
+          Export progress…
+        </button>
+        <button
+          className="jle-btn"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              const file = await pickProgressFile();
+              if (file) setPending(file);
+            })
+          }
+        >
+          Import progress…
+        </button>
+        <button
+          className="jle-btn"
+          disabled={busy}
+          onClick={() => {
+            engine.rebuild();
+            onImported();
+          }}
+        >
+          Rebuild from log
+        </button>
+      </div>
+      {pending && (
+        <div className="jle-note jle-note-bad import-confirm" role="alertdialog" aria-label="Replace progress">
+          <b>Replace the progress on this Mac?</b>
+          <span>
+            The file’s progress takes the place of this Mac’s. This Mac’s current data is copied aside first, so it can be
+            recovered.
+          </span>
+          <div className="jle-row">
+            <button
+              className="jle-btn danger"
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  const s = await importProgress(pending);
+                  setPending(null);
+                  setMessage(`Imported ${counts(s)}. The previous data was copied to ${s.path}.`);
+                  onImported();
+                })
+              }
+            >
+              Replace it
+            </button>
+            <button className="jle-btn" disabled={busy} onClick={() => setPending(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {message && <p className="t-body-sm jle-muted">{message}</p>}
+      {error && <p className="t-body-sm jle-wrong">{error}</p>}
     </div>
   );
 }

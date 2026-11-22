@@ -80,7 +80,7 @@ cd apps/desktop && pnpm tauri dev
 
 **Sudachi (tokenizer).** Download `sudachi-dictionary-<date>-core.zip` (about 77 MB) from the WorksApplications/SudachiDict GitHub releases and put its `system_core.dic` (about 200 MB) in `~/Library/Application Support/jle-sudachi/<date>/`. The host loads the newest one on first use (about 0.15 s) and keeps it; `JLE_SUDACHI_DIR` overrides the folder. The dictionary and sudachi.rs are Apache 2.0. Without it, the `analyze` command returns an error saying what to install. Tokenizer tests skip when it is missing.
 
-**Your study progress** lives in `~/Library/Application Support/app.jle.desktop/jle.sqlite` and does not sync. To carry it over, quit the app on both machines and copy that file to the same path on the new Mac. Settings → Save a copy exports the log as JSON, but there is no import yet.
+**Your study progress** lives in `~/Library/Application Support/app.jle.desktop/jle.sqlite` and does not sync. To carry it to another Mac: Settings → Your progress → **Export progress…** saves one JSON file (the event log plus every stored passage, grade and explanation; the cost log stays on each Mac). On the other Mac, **Import progress…** checks the whole file, copies that Mac's current data to `…/app.jle.desktop/backups/`, and replaces it. A file from a newer version of the app is refused. Format `jle-progress` version 1 (`apps/desktop/src-tauri/src/backup.rs`); it is log-centred so a later sync service can move the same unit.
 
 **Installing into /Applications:** `pnpm app` from the main checkout builds a release and replaces `/Applications/日本語.app`. See the repo `CLAUDE.md`.
 

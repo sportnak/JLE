@@ -25,7 +25,7 @@ fn get(conn: &Connection, key: &str) -> rusqlite::Result<Option<Value>> {
     .optional()
 }
 
-fn put(conn: &Connection, v: &Value) -> Result<(), String> {
+pub(crate) fn put(conn: &Connection, v: &Value) -> Result<(), String> {
   let field = |k: &str| v.get(k).and_then(Value::as_str).ok_or_else(|| format!("explanation is missing `{k}`"));
   conn
     .execute(

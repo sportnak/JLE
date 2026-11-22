@@ -856,3 +856,7 @@ rt:not(.t-furigana) {
 .answer-actions .jle-caption {
   align-self: center;
 }
+.import-confirm {
+  display: grid;
+  gap: var(--space-2);
+}
